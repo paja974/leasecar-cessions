@@ -1,0 +1,1387 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cessions Véhicules — LEASECAR</title>
+
+<!-- Tesseract.js : OCR client-side -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<!-- pdf-lib : remplissage et dessin sur PDF -->
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<!-- fontkit pour pdf-lib (caractères spéciaux) -->
+<script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --paper: #fffdf8;
+    --ink: #1a1a1a;
+    --ink-soft: #4a4a4a;
+    --line: #2a2a2a;
+    --line-soft: #d6d1c4;
+    --accent: #0a3d62;
+    --accent-soft: #d4e1ec;
+    --warn: #b8430c;
+    --ok: #2d6a4f;
+    --bad: #a30b0b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Source Serif Pro', Georgia, serif;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+  body {
+    background-image: repeating-linear-gradient(0deg, transparent 0, transparent 28px, #00000005 28px, #00000005 29px);
+    min-height: 100vh;
+  }
+  header {
+    border-bottom: 2px solid var(--line);
+    padding: 16px 26px 12px;
+    background: var(--paper);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-caps: small-caps;
+    letter-spacing: -0.01em;
+  }
+  header .sub {
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  header .meta {
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-align: right;
+    font-family: 'JetBrains Mono', Menlo, monospace;
+  }
+  main {
+    max-width: 1240px;
+    margin: 20px auto;
+    padding: 0 22px 60px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 0 #00000010, 0 6px 24px -12px #00000018;
+    padding: 20px 22px;
+  }
+  .panel h2 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-caps: small-caps;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .panel h2 .tag {
+    font-size: 10px;
+    font-variant-caps: normal;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 400;
+  }
+  .panel h3 {
+    margin: 16px 0 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-soft);
+    font-weight: 700;
+  }
+
+  /* OCR */
+  .dropzone {
+    border: 2px dashed var(--line-soft);
+    padding: 20px 14px;
+    text-align: center;
+    cursor: pointer;
+    margin-top: 8px;
+    background: #fbf8f1;
+    transition: all 0.15s;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone .big { font-size: 13px; font-weight: 600; }
+  .dropzone p { margin: 3px 0; font-size: 12px; color: var(--ink-soft); }
+  .dropzone input { display: none; }
+
+  .ocr-status {
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 7px 11px;
+    border-left: 3px solid var(--line-soft);
+    background: #f9f6ee;
+  }
+  .ocr-status.busy { border-left-color: var(--warn); }
+  .ocr-status.ok { border-left-color: var(--ok); }
+  .ocr-status.err { border-left-color: var(--bad); }
+  .ocr-progress { height: 2px; background: var(--line-soft); margin-top: 5px; overflow: hidden; }
+  .ocr-progress > div { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+
+  /* Champs */
+  .field { display: grid; grid-template-columns: 140px 1fr; gap: 8px; margin-bottom: 6px; align-items: center; }
+  .field label {
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .field label .code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    background: var(--line-soft);
+    padding: 1px 4px;
+    color: var(--ink);
+    border-radius: 2px;
+    margin-left: 5px;
+  }
+  .field input, .field select, .field textarea {
+    border: 1px solid var(--line-soft);
+    background: var(--paper);
+    padding: 6px 9px;
+    font-family: inherit;
+    font-size: 13.5px;
+    color: var(--ink);
+  }
+  .field input:focus, .field select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  .field input.filled { background: #f5fcf5; }
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .row-2 .field { margin-bottom: 0; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .row-3 .field { margin-bottom: 0; }
+
+  fieldset {
+    border: 1px solid var(--line-soft);
+    padding: 12px 14px 8px;
+    margin: 12px 0 0;
+  }
+  fieldset legend {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    font-weight: 700;
+    padding: 0 6px;
+  }
+
+  /* Actions */
+  .docs-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 10px 0 6px;
+    font-size: 13px;
+  }
+  .docs-choice label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 6px 10px;
+    background: #fbf8f1;
+    border: 1px solid var(--line-soft);
+  }
+  .docs-choice label:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); }
+
+  .actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 12.5px;
+    padding: 9px 16px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  button:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); }
+  button.ghost { background: transparent; border-style: dashed; }
+
+  .download-list {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: #f0f7f2;
+    border: 1px solid var(--ok);
+    display: none;
+  }
+  .download-list.shown { display: block; }
+  .download-list h3 { margin: 0 0 8px; color: var(--ok); }
+  .download-list a {
+    display: inline-block;
+    margin: 4px 6px 4px 0;
+    padding: 7px 12px;
+    background: var(--paper);
+    border: 1px solid var(--ok);
+    color: var(--ok);
+    text-decoration: none;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .download-list a:hover { background: var(--ok); color: var(--paper); }
+  .dl-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .dl-actions button { font-size: 12px; }
+  .dl-hint {
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+  .dl-hint.warn { color: var(--warn); font-style: normal; }
+  #downloadLinks { padding-top: 6px; border-top: 1px dashed var(--line-soft); }
+  #downloadLinks::before {
+    content: "Téléchargement individuel :";
+    display: block;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    margin: 8px 0 6px;
+  }
+
+  .notice {
+    margin-top: 12px;
+    padding: 9px 13px;
+    background: #fdf3e8;
+    border-left: 3px solid var(--warn);
+    font-size: 12.5px;
+  }
+  .notice strong { color: var(--warn); }
+  .notice code {
+    background: var(--paper);
+    padding: 1px 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  .cg-preview { margin-top: 10px; display: none; }
+  .cg-preview.shown { display: block; }
+  .cg-preview img { max-width: 100%; border: 1px solid var(--line-soft); }
+
+  footer {
+    text-align: center;
+    padding: 22px 14px;
+    font-size: 10.5px;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--line-soft);
+    margin-top: 30px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.06em;
+  }
+
+  /* Steps */
+  .steps {
+    display: flex;
+    margin-bottom: 18px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .step {
+    flex: 1;
+    padding: 9px 14px;
+    border-right: 1px solid var(--line-soft);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .step:last-child { border-right: none; }
+  .step .num {
+    display: inline-flex;
+    width: 20px; height: 20px;
+    border: 1px solid var(--ink-soft);
+    border-radius: 50%;
+    align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .step.active { color: var(--ink); background: var(--accent-soft); }
+  .step.active .num { background: var(--accent); color: var(--paper); border-color: var(--accent); }
+  .step.done { color: var(--ok); }
+  .step.done .num { background: var(--ok); color: var(--paper); border-color: var(--ok); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Cessions Véhicules</h1>
+    <div class="sub">LEASECAR · La Réunion · Outil 10Positif</div>
+  </div>
+  <div class="meta">
+    Cerfa 13751 + 15776 + 13754<br>
+    100% local · données non transmises
+  </div>
+</header>
+
+<main>
+
+  <div class="steps">
+    <div class="step active" id="step1"><span class="num">1</span> Carte grise (OCR)</div>
+    <div class="step" id="step2"><span class="num">2</span> Banque vendeuse</div>
+    <div class="step" id="step3"><span class="num">3</span> Acquéreur final</div>
+    <div class="step" id="step4"><span class="num">4</span> Génération PDF</div>
+  </div>
+
+  <div class="grid">
+
+    <!-- ============ COLONNE 1 : VÉHICULE ============ -->
+    <section class="panel">
+      <h2>Véhicule <span class="tag">Carte grise · OCR</span></h2>
+
+      <label class="dropzone" id="dropzone">
+        <p class="big">Déposer le scan / la photo de la carte grise</p>
+        <p>ou cliquer pour sélectionner · JPG / PNG (recto)</p>
+        <input type="file" id="fileInput" accept="image/*">
+      </label>
+
+      <div class="ocr-status" id="ocrStatus">
+        En attente d'une image…
+        <div class="ocr-progress"><div id="ocrBar"></div></div>
+      </div>
+
+      <div class="cg-preview" id="cgPreview">
+        <img id="cgImg" alt="aperçu carte grise">
+      </div>
+
+      <h3>Informations véhicule</h3>
+
+      <div class="field">
+        <label>Immatriculation<span class="code">A</span></label>
+        <input type="text" id="immat" placeholder="AB-123-CD" style="text-transform:uppercase">
+      </div>
+
+      <div class="field">
+        <label>VIN<span class="code">E</span></label>
+        <input type="text" id="vin" placeholder="VF1RJB00..." style="text-transform:uppercase; font-family:monospace; font-size:13px">
+      </div>
+
+      <div class="field">
+        <label>1<sup>re</sup> immat<span class="code">B</span></label>
+        <input type="date" id="dateImmat">
+      </div>
+
+      <div class="row-2">
+        <div class="field" style="grid-template-columns:1fr">
+          <label>Marque<span class="code">D.1</span></label>
+          <input type="text" id="marque" placeholder="RENAULT" style="text-transform:uppercase">
+        </div>
+        <div class="field" style="grid-template-columns:1fr">
+          <label>Modèle<span class="code">D.3</span></label>
+          <input type="text" id="modele" placeholder="CLIO" style="text-transform:uppercase">
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="field" style="grid-template-columns:1fr">
+          <label>Type/Variante<span class="code">D.2</span></label>
+          <input type="text" id="typeVar" placeholder="B0A">
+        </div>
+        <div class="field" style="grid-template-columns:1fr">
+          <label>Genre<span class="code">J.1</span></label>
+          <input type="text" id="genre" placeholder="VP" style="text-transform:uppercase">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>N° de formule</label>
+        <input type="text" id="numFormule" placeholder="2020AB12345 (format SIV)" style="text-transform:uppercase">
+      </div>
+
+      <h3>Cession</h3>
+
+      <div class="field">
+        <label>Kilométrage</label>
+        <input type="number" id="kilometrage" placeholder="87543">
+      </div>
+
+      <div class="row-2">
+        <div class="field" style="grid-template-columns:1fr">
+          <label>Date cession</label>
+          <input type="date" id="dateCession">
+        </div>
+        <div class="field" style="grid-template-columns:1fr">
+          <label>Heure</label>
+          <input type="time" id="heureCession" value="14:00">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Lieu de cession</label>
+        <input type="text" id="lieuCession" placeholder="LE PORT" style="text-transform:uppercase">
+      </div>
+    </section>
+
+    <!-- ============ COLONNE 2 : BANQUE + ACQUÉREUR ============ -->
+    <section class="panel">
+      <h2>Parties <span class="tag">Banque → LEASECAR → Acquéreur</span></h2>
+
+      <fieldset>
+        <legend>1 · Banque cédante (vendeur du Cerfa 13751)</legend>
+        <div class="field">
+          <label>Sélectionner</label>
+          <select id="banqueSel">
+            <option value="">— Choisir une banque —</option>
+            <!-- options injectées par JS depuis BANQUES -->
+          </select>
+        </div>
+        <div class="field">
+          <label>Raison sociale</label>
+          <input type="text" id="bNom" placeholder="(auto)">
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>SIREN</label>
+            <input type="text" id="bSiren" placeholder="9 chiffres">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>N° voie</label>
+            <input type="text" id="bVoie">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Type voie</label>
+            <input type="text" id="bTypeVoie" placeholder="RUE, AVENUE...">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Nom voie</label>
+            <input type="text" id="bNomVoie">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>CP</label>
+            <input type="text" id="bCP">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Commune</label>
+            <input type="text" id="bCommune">
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>2 · LEASECAR (acquéreur 13751, vendeur 15776/13754)</legend>
+        <p style="font-size:12px; color:var(--ink-soft); margin:0 0 4px;">Pré-rempli. Modifier si évolution.</p>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Raison sociale</label>
+            <input type="text" id="lNom" value="LEASECAR">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>SIREN</label>
+            <input type="text" id="lSiren" value="535143424">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>N° voie</label>
+            <input type="text" id="lVoie" value="103">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Type voie</label>
+            <input type="text" id="lTypeVoie" value="AVENUE">
+          </div>
+        </div>
+        <div class="field">
+          <label>Nom voie</label>
+          <input type="text" id="lNomVoie" value="JACQUES PREVERT">
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>CP</label>
+            <input type="text" id="lCP" value="97420">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Commune</label>
+            <input type="text" id="lCommune" value="LE PORT">
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>3 · Acquéreur final (client du Cerfa 15776/13754)</legend>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Type</label>
+            <select id="cType">
+              <option value="physique">Personne physique</option>
+              <option value="moral">Personne morale</option>
+            </select>
+          </div>
+          <div class="field" style="grid-template-columns:1fr" id="cSexeWrap">
+            <label>Sexe</label>
+            <select id="cSexe">
+              <option value="M">M</option>
+              <option value="F">F</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Nom / Raison soc.</label>
+          <input type="text" id="cNom" placeholder="DUPONT JEAN ou SARL XYZ" style="text-transform:uppercase">
+        </div>
+        <div class="field" id="cSiretWrap" style="display:none">
+          <label>SIRET</label>
+          <input type="text" id="cSiret">
+        </div>
+        <div class="row-2" id="cNaissWrap">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Date naissance</label>
+            <input type="date" id="cDateN">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Lieu naissance</label>
+            <input type="text" id="cLieuN" style="text-transform:uppercase">
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>N° voie</label>
+            <input type="text" id="cVoie">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Type voie</label>
+            <input type="text" id="cTypeVoie">
+          </div>
+        </div>
+        <div class="field">
+          <label>Nom voie</label>
+          <input type="text" id="cNomVoie">
+        </div>
+        <div class="row-2">
+          <div class="field" style="grid-template-columns:1fr">
+            <label>CP</label>
+            <input type="text" id="cCP">
+          </div>
+          <div class="field" style="grid-template-columns:1fr">
+            <label>Commune</label>
+            <input type="text" id="cCommune">
+          </div>
+        </div>
+      </fieldset>
+
+      <h3>Documents à générer</h3>
+      <div class="docs-choice">
+        <label><input type="checkbox" id="gen13751" checked> <b>Cerfa 13751</b> — Déclaration d'achat (banque → LEASECAR)</label>
+        <label><input type="checkbox" id="gen15776" checked> <b>Cerfa 15776</b> — Certificat de cession (LEASECAR → acquéreur)</label>
+        <label><input type="checkbox" id="gen13754" checked> <b>Cerfa 13754</b> — Déclaration de cession (archive)</label>
+      </div>
+
+      <div class="notice">
+        <strong>⚠ Premier usage</strong> — Placer les 3 PDF Cerfa originaux dans le même dossier que cette page :
+        <code>cerfa_13751.pdf</code>, <code>cerfa_15776.pdf</code>, <code>cerfa_13754.pdf</code>.
+      </div>
+
+      <div class="actions">
+        <button type="button" class="primary" id="btnGenerate">Générer les PDF</button>
+        <button type="button" class="ghost" id="btnReset">Réinitialiser</button>
+        <button type="button" class="ghost" id="btnSave">Sauvegarder (JSON)</button>
+        <button type="button" class="ghost" id="btnLoad">Charger</button>
+        <input type="file" id="loadInput" accept=".json" style="display:none">
+      </div>
+
+      <div class="download-list" id="downloads">
+        <h3>✓ Documents générés</h3>
+        <div class="dl-actions" id="dlActions">
+          <button type="button" class="primary" id="btnSaveFolder" title="Choisir un dossier où enregistrer les 3 PDF d'un coup">
+            📁 Enregistrer dans un dossier…
+          </button>
+          <span class="dl-hint" id="dlHint"></span>
+        </div>
+        <div id="downloadLinks"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  v2.0 · 10Positif · SARL · La Réunion (974) · 2026
+</footer>
+
+<script>
+'use strict';
+
+/* ===========================================================================
+   ⚙️ CONFIGURATION — À ÉDITER POUR ADAPTER AU CONTEXTE LEASECAR
+   =========================================================================== */
+
+// Banques / financeurs récurrents. Ajouter, retirer, modifier librement.
+// Les coordonnées doivent être au format administratif :
+//   voie = numéro (ex. "46")
+//   typevoie = "RUE", "AVENUE", "BOULEVARD", "PLACE", "ALLEE", "QUAI", "IMPASSE"...
+//   nomvoie = nom de la voie en MAJUSCULES sans accents quand possible
+const BANQUES = [
+  {
+    id: 'bnp_lease',
+    label: 'BNP Paribas Lease Group',
+    nom: 'BNP PARIBAS LEASE GROUP',
+    siren: '632017513',
+    voie: '46',
+    typevoie: 'RUE',
+    nomvoie: 'DE PROVENCE',
+    cp: '75009',
+    commune: 'PARIS'
+  },
+  {
+    id: 'arval',
+    label: 'Arval Service Lease',
+    nom: 'ARVAL SERVICE LEASE',
+    siren: '352256424',
+    voie: '1',
+    typevoie: 'BOULEVARD',
+    nomvoie: 'HAUSSMANN',
+    cp: '75009',
+    commune: 'PARIS'
+  },
+  {
+    id: 'ca_leasing',
+    label: 'Crédit Agricole Leasing & Factoring',
+    nom: 'CREDIT AGRICOLE LEASING & FACTORING',
+    siren: '692029457',
+    voie: '12',
+    typevoie: 'PLACE',
+    nomvoie: 'DES ETATS-UNIS',
+    cp: '92120',
+    commune: 'MONTROUGE'
+  },
+  {
+    id: 'cgi',
+    label: 'CGI (Compagnie Générale de Location d\'Équipements)',
+    nom: 'CGI',
+    siren: '702002221',
+    voie: '20',
+    typevoie: 'AVENUE',
+    nomvoie: 'GEORGES POMPIDOU',
+    cp: '92300',
+    commune: 'LEVALLOIS-PERRET'
+  },
+  // ↓ AJOUTER VOS BANQUES PARTENAIRES ICI ↓
+];
+
+// Coordonnées par défaut LEASECAR (pré-remplies dans le formulaire)
+// Si LEASECAR évolue, modifier ici.
+const LEASECAR_DEFAULT = {
+  nom: 'LEASECAR',
+  siren: '535143424',       // SIREN officiel (SAS, RCS Saint-Denis de La Réunion)
+  voie: '103',
+  typevoie: 'AVENUE',
+  nomvoie: 'JACQUES PREVERT',
+  cp: '97420',
+  commune: 'LE PORT'
+};
+
+/* ===========================================================================
+   Helpers
+   =========================================================================== */
+const $ = id => document.getElementById(id);
+
+const fields = [
+  'immat','vin','dateImmat','marque','modele','typeVar','genre','numFormule',
+  'kilometrage','dateCession','heureCession','lieuCession',
+  'banqueSel','bNom','bSiren','bVoie','bTypeVoie','bNomVoie','bCP','bCommune',
+  'lNom','lSiren','lVoie','lTypeVoie','lNomVoie','lCP','lCommune',
+  'cType','cSexe','cNom','cSiret','cDateN','cLieuN',
+  'cVoie','cTypeVoie','cNomVoie','cCP','cCommune'
+];
+
+function setVal(id, v) {
+  const el = $(id);
+  if (!el || v === undefined || v === null || v === '') return;
+  el.value = v;
+  el.classList.add('filled');
+}
+function getAll() {
+  const o = {};
+  fields.forEach(f => { if ($(f)) o[f] = $(f).value; });
+  return o;
+}
+function setAll(o) {
+  fields.forEach(f => { if (o[f] !== undefined) setVal(f, o[f]); });
+  toggleClient();
+}
+
+/* Init banque dropdown */
+function initBanques() {
+  const sel = $('banqueSel');
+  BANQUES.forEach(b => {
+    const o = document.createElement('option');
+    o.value = b.id;
+    o.textContent = b.label;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => {
+    const b = BANQUES.find(x => x.id === sel.value);
+    if (!b) return;
+    setVal('bNom', b.nom);
+    setVal('bSiren', b.siren);
+    setVal('bVoie', b.voie);
+    setVal('bTypeVoie', b.typevoie);
+    setVal('bNomVoie', b.nomvoie);
+    setVal('bCP', b.cp);
+    setVal('bCommune', b.commune);
+    markStep(3);
+  });
+}
+
+/* Type client (physique/moral) */
+function toggleClient() {
+  const t = $('cType').value;
+  const isMoral = t === 'moral';
+  $('cSexeWrap').style.display = isMoral ? 'none' : '';
+  $('cSiretWrap').style.display = isMoral ? '' : 'none';
+  $('cNaissWrap').style.display = isMoral ? 'none' : '';
+}
+$('cType').addEventListener('change', toggleClient);
+
+/* Steps */
+function markStep(n) {
+  for (let i = 1; i <= 4; i++) {
+    const el = $('step' + i);
+    el.classList.remove('active','done');
+    if (i < n) el.classList.add('done');
+    else if (i === n) el.classList.add('active');
+  }
+}
+
+/* ===========================================================================
+   OCR Tesseract
+   =========================================================================== */
+const dz = $('dropzone');
+const fi = $('fileInput');
+const status = $('ocrStatus');
+const bar = $('ocrBar');
+
+dz.addEventListener('click', () => fi.click());
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fi.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+async function handleFile(file) {
+  const url = URL.createObjectURL(file);
+  $('cgImg').src = url;
+  $('cgPreview').classList.add('shown');
+
+  status.className = 'ocr-status busy';
+  status.firstChild.textContent = 'OCR en cours… (15-30 s la 1re fois)';
+  bar.style.width = '0%';
+
+  try {
+    const r = await Tesseract.recognize(file, 'fra', {
+      logger: m => {
+        if (m.status === 'recognizing text') bar.style.width = Math.round(m.progress * 100) + '%';
+      }
+    });
+    parseCG(r.data.text);
+    status.className = 'ocr-status ok';
+    status.firstChild.textContent = '✓ OCR terminé. Vérifier et corriger si besoin.';
+    markStep(2);
+  } catch (err) {
+    status.className = 'ocr-status err';
+    status.firstChild.textContent = '✗ Erreur OCR : ' + err.message;
+  }
+}
+
+function parseCG(text) {
+  // Immatriculation SIV
+  const m1 = text.match(/\b([A-HJ-NP-TV-Z]{2}[-\s]?\d{3}[-\s]?[A-HJ-NP-TV-Z]{2})\b/);
+  if (m1) setVal('immat', m1[1].toUpperCase().replace(/\s/g, '-'));
+
+  // VIN
+  const m2 = text.match(/\b([A-HJ-NPR-Z0-9]{17})\b/);
+  if (m2) setVal('vin', m2[1].toUpperCase());
+
+  // 1re date (souvent date de 1re immat)
+  const dates = [...text.matchAll(/\b(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})\b/g)];
+  if (dates.length) {
+    const [, d, m, y] = dates[0];
+    setVal('dateImmat', `${y}-${m}-${d}`);
+  }
+
+  const grab = (lbl, fid, maxLen=25) => {
+    const m = text.match(new RegExp(lbl + '\\s*[:.\\-]?\\s*([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '})', 'i'));
+    if (m) setVal(fid, m[1].trim().toUpperCase());
+  };
+  grab('D\\.?\\s*1', 'marque', 20);
+  grab('D\\.?\\s*3', 'modele', 25);
+  grab('D\\.?\\s*2', 'typeVar', 20);
+  grab('J\\.?\\s*1', 'genre', 5);
+
+  // Fallback marques si D.1 non trouvé
+  if (!$('marque').value) {
+    ['RENAULT','PEUGEOT','CITROEN','DACIA','VOLKSWAGEN','BMW','MERCEDES','AUDI',
+     'TOYOTA','NISSAN','OPEL','FORD','FIAT','HYUNDAI','KIA','SEAT','SKODA',
+     'MAZDA','HONDA','MITSUBISHI','SUZUKI','TESLA','SMART','MINI']
+    .forEach(m => { if (!$('marque').value && text.toUpperCase().includes(m)) setVal('marque', m); });
+  }
+}
+
+/* ===========================================================================
+   GÉNÉRATION DES PDF
+   Stratégie : on charge le PDF Cerfa et on dessine du texte par-dessus
+   aux coordonnées calibrées (toutes en système y-from-top, on convertit).
+   =========================================================================== */
+const { PDFDocument, StandardFonts, rgb } = PDFLib;
+
+async function tryLoad(name) {
+  try {
+    const r = await fetch(name);
+    if (!r.ok) return null;
+    return await r.arrayBuffer();
+  } catch { return null; }
+}
+
+// Factory qui crée les helpers drawAt/check liés à une police
+// Conversion : pdf-lib utilise y depuis le bas, on travaille en y_top
+function makeDrawer(page, fontR, fontB) {
+  const h = page.getHeight();
+  return {
+    put: (x, yTop, text, size = 9.5) => {
+      if (text === undefined || text === null || text === '') return;
+      page.drawText(String(text), { x, y: h - yTop - size, size, font: fontR });
+    },
+    check: (x, yTop) => {
+      page.drawText('X', { x, y: h - yTop - 9, size: 9, font: fontB });
+    }
+  };
+}
+function fmtDate(iso) {
+  if (!iso) return { j:'', m:'', a:'', full:'' };
+  const [y, m, d] = iso.split('-');
+  return { j: d, m, a: y, full: `${d}/${m}/${y}` };
+}
+function fmtTime(hhmm) {
+  if (!hhmm) return { h:'', min:'' };
+  const [h, m] = hhmm.split(':');
+  return { h, min: m };
+}
+
+/* ============================================================
+   CERFA 15776 — Cession LEASECAR → CLIENT
+   ============================================================ */
+async function fillCerfa15776(d) {
+  const buf = await tryLoad('cerfa_15776.pdf');
+  if (!buf) return null;
+  const pdf = await PDFDocument.load(buf);
+
+  const fontR = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontB = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const dCess = fmtDate(d.dateCession);
+  const dImmat = fmtDate(d.dateImmat);
+  const t = fmtTime(d.heureCession);
+
+  // page 0 et page 1 (exemplaires identiques)
+  for (const pageIdx of [0, 1]) {
+    if (pageIdx >= pdf.getPageCount()) break;
+    const p = pdf.getPage(pageIdx);
+    const D = makeDrawer(p, fontR, fontB);
+
+    // === Véhicule ===
+    D.put(38,  138, d.immat);
+    D.put(175, 138, d.vin);
+    D.put(442, 138, dImmat.full);
+    D.put(38,  162, d.marque);
+    D.put(180, 162, d.typeVar);
+    D.put(325, 162, d.genre);
+    D.put(442, 162, d.modele);
+    D.put(215, 173, d.kilometrage);
+
+    // Numéro de formule
+    D.check(38, 208);
+    D.put(175, 199, d.numFormule);
+
+    // === Ancien propriétaire = LEASECAR ===
+    D.check(38, 268);  // Personne morale
+    D.put(100, 295, d.lNom);
+    D.put(460, 295, d.lSiren);
+    D.put(100, 325, d.lVoie);
+    D.put(215, 325, d.lTypeVoie);
+    D.put(290, 325, d.lNomVoie);
+    D.put(105, 351, d.lCP);
+    D.put(215, 351, d.lCommune);
+
+    D.check(247, 361);  // céder
+    D.put(50,  386, dCess.j);
+    D.put(80,  386, dCess.m);
+    D.put(110, 386, dCess.a);
+    D.put(175, 386, t.h);
+    D.put(205, 386, t.min);
+
+    D.put(70,  513, d.lieuCession);
+    D.put(215, 513, dCess.full);
+
+    // === Nouveau propriétaire = CLIENT ===
+    if (d.cType === 'physique') {
+      D.check(38, 597);
+      if (d.cSexe === 'M') D.check(295, 597);
+      else D.check(322, 597);
+    } else {
+      D.check(38, 607);
+    }
+    D.put(100, 626, d.cNom);
+    D.put(460, 626, d.cSiret);
+
+    if (d.cType === 'physique') {
+      const dn = fmtDate(d.cDateN);
+      D.put(90,  650, dn.full);
+      D.put(220, 650, d.cLieuN);
+    }
+    D.put(100, 669, d.cVoie);
+    D.put(215, 669, d.cTypeVoie);
+    D.put(290, 669, d.cNomVoie);
+    D.put(105, 695, d.cCP);
+    D.put(215, 695, d.cCommune);
+
+    D.check(38, 725);
+    D.check(38, 738);
+    D.put(70,  768, d.lieuCession);
+    D.put(215, 768, dCess.full);
+  }
+
+  return await pdf.save();
+}
+
+/* ============================================================
+   CERFA 13754 — Archive (LEASECAR → CLIENT, ancien format)
+   ============================================================ */
+async function fillCerfa13754(d) {
+  const buf = await tryLoad('cerfa_13754.pdf');
+  if (!buf) return null;
+  const pdf = await PDFDocument.load(buf);
+
+  const fontR = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontB = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const dCess = fmtDate(d.dateCession);
+  const dImmat = fmtDate(d.dateImmat);
+  const t = fmtTime(d.heureCession);
+
+  // 3 pages identiques (acquéreur, préfecture, vendeur)
+  for (let pageIdx = 0; pageIdx < pdf.getPageCount(); pageIdx++) {
+    const p = pdf.getPage(pageIdx);
+    const D = makeDrawer(p, fontR, fontB);
+
+    // === LEASECAR (ancien propriétaire) - haut ===
+    D.put(110, 95, d.lNom);
+    D.put(510, 95, d.lSiren);
+    D.put(60,  120, d.lVoie);
+    D.put(160, 120, d.lTypeVoie);
+    D.put(270, 120, d.lNomVoie);
+    D.put(50,  138, d.lCP);
+    D.put(215, 138, d.lCommune);
+
+    // déclare avoir cédé
+    D.check(122, 153);
+    // date + heure cession
+    D.put(240, 175, dCess.j);
+    D.put(290, 175, dCess.m);
+    D.put(340, 175, dCess.a);
+    D.put(425, 175, t.h);
+    D.put(465, 175, t.min);
+
+    // véhicule
+    D.put(65,  188, d.immat);
+    D.put(270, 188, d.vin);
+    D.put(450, 188, dImmat.full);
+    D.put(100, 218, d.marque);
+    D.put(360, 218, d.typeVar);
+    D.put(50,  242, d.genre);
+    D.put(205, 242, d.modele);
+
+    // === Client (nouveau propriétaire) ===
+    D.put(50,  262, d.cNom);
+    D.put(510, 262, d.cSiret);
+    if (d.cType === 'physique') {
+      const dn = fmtDate(d.cDateN);
+      D.put(70,  285, dn.j);
+      D.put(110, 285, dn.m);
+      D.put(160, 285, dn.a);
+      D.put(260, 285, d.cLieuN);
+      D.check(224, 307);
+      if (d.cSexe === 'M') D.check(296, 307);
+      else D.check(320, 307);
+    } else {
+      D.check(422, 307);
+    }
+    D.put(60,  338, d.cVoie);
+    D.put(160, 338, d.cTypeVoie);
+    D.put(270, 338, d.cNomVoie);
+    D.put(50,  370, d.cCP);
+    D.put(210, 370, d.cCommune);
+    D.put(470, 370, 'FRANCE');
+
+    // OUI présence certificat + numéro de formule
+    D.check(313, 386);
+    D.put(420, 393, d.numFormule);
+
+    D.put(60, 458, d.lieuCession);
+    D.put(290, 458, dCess.j);
+    D.put(330, 458, dCess.m);
+    D.put(370, 458, dCess.a);
+
+    // === Certificat de vente (bas) ===
+    D.put(110, 558, d.lNom);
+    D.put(510, 558, d.lSiren);
+    D.put(60,  584, d.lVoie);
+    D.put(160, 584, d.lTypeVoie);
+    D.put(270, 584, d.lNomVoie);
+    D.put(50,  618, d.lCP);
+    D.put(215, 618, d.lCommune);
+    D.put(555, 643, dCess.j);
+    D.put(600, 643, dCess.m);
+    D.put(650, 643, dCess.a);
+    D.check(144, 661);
+    D.put(165, 683, (d.kilometrage || '') + ' km');
+    D.put(230, 754, d.lieuCession);
+    D.put(415, 754, dCess.full);
+  }
+
+  return await pdf.save();
+}
+
+/* ============================================================
+   CERFA 13751 — Déclaration d'achat BANQUE → LEASECAR
+   Ce PDF a des champs AcroForm — on les remplit par nom
+   ============================================================ */
+async function fillCerfa13751(d) {
+  const buf = await tryLoad('cerfa_13751.pdf');
+  if (!buf) return null;
+  const pdf = await PDFDocument.load(buf);
+
+  const fontR = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontB = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const form = pdf.getForm();
+  const dCess = fmtDate(d.dateCession);
+  const t = fmtTime(d.heureCession);
+
+  const tryFill = (fragment, value) => {
+    if (!value) return;
+    const all = form.getFields();
+    const f = all.find(x => x.getName().toLowerCase().includes(fragment.toLowerCase()));
+    if (!f) return;
+    try {
+      if (typeof f.setText === 'function') f.setText(String(value));
+    } catch (e) { console.warn('Champ 13751', fragment, e.message); }
+  };
+
+  // ---- HAUT : ACQUÉREUR = LEASECAR ----
+  tryFill('Nom[0]',       d.lNom);
+  tryFill('NSIREN[0]',    d.lSiren);
+  tryFill('N_voie[0]',    d.lVoie);
+  tryFill('Nomvoie[0]',   d.lNomVoie);
+  tryFill('Codepostal[0]',d.lCP);
+  tryFill('Commune[0]',   d.lCommune);
+
+  // Véhicule
+  tryFill('N_dimmatriculation', d.immat);
+  tryFill('N_didentification',  d.vin);
+  tryFill('Marque',             d.marque);
+  tryFill('Typeversion',        d.typeVar);
+  tryFill('Denominationcommerciale', d.modele);
+  tryFill('Genrenational',      d.genre);
+  tryFill('Data_jour_vente',    `${dCess.j}${dCess.m}${dCess.a}`);
+  tryFill('HEUREMINUTES',       `${t.h}${t.min}`);
+  tryFill('N_deformuleimmatriculation', d.numFormule);
+  tryFill('Fait_à[0]',          d.lieuCession);
+  tryFill('Data_signature',     `${dCess.j}${dCess.m}${dCess.a}`);
+
+  // ---- BAS : VENDEUR = BANQUE ----
+  tryFill('Nom2',       d.bNom);
+  tryFill('NSIREN2',    d.bSiren);
+  tryFill('N_voie2',    d.bVoie);
+  tryFill('Nomvoie2',   d.bNomVoie);
+  tryFill('Codepostal2',d.bCP);
+  tryFill('Commune2',   d.bCommune);
+  tryFill('Data_VENTE', `${dCess.j}${dCess.m}${dCess.a}`);
+  tryFill('Fait_à_2',   d.lieuCession);
+  tryFill('Data_CERTIF',`${dCess.j}${dCess.m}${dCess.a}`);
+
+  // Cases à cocher : dessin direct par-dessus
+  const p = pdf.getPage(0);
+  const D = makeDrawer(p, fontR, fontB);
+  D.check(159, 91);   // professionnel automobile
+  D.check(100, 153);  // acheté
+  D.check(313, 240);  // OUI présence certificat
+
+  // Aplatir le formulaire pour éviter les modifications ultérieures
+  // (commenté car parfois trop agressif, l'utilisateur peut préférer un PDF éditable)
+  // form.flatten();
+
+  return await pdf.save();
+}
+
+/* ===========================================================================
+   Bouton Générer + Enregistrer dans un dossier
+   =========================================================================== */
+
+// Détection du support de l'API File System Access (Chrome/Edge desktop)
+const HAS_FS_ACCESS = typeof window.showDirectoryPicker === 'function';
+
+// Stockage des derniers PDF générés (bytes + noms) pour réutilisation
+let lastGenerated = [];   // [{ name, bytes, blobUrl }, ...]
+
+function makeBlobUrl(bytes) {
+  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+}
+
+$('btnGenerate').addEventListener('click', async () => {
+  const d = getAll();
+
+  // Validation basique
+  if (!d.immat || !d.vin) {
+    if (!confirm('Immatriculation ou VIN manquant. Continuer ?')) return;
+  }
+
+  const btn = $('btnGenerate');
+  btn.disabled = true;
+  btn.textContent = 'Génération…';
+
+  // Libérer les anciens blob URLs
+  lastGenerated.forEach(x => { if (x.blobUrl) URL.revokeObjectURL(x.blobUrl); });
+  lastGenerated = [];
+
+  const links = $('downloadLinks');
+  links.innerHTML = '';
+  const missing = [];
+
+  const safeImmat = (d.immat || 'vehicule').replace(/[^A-Z0-9-]/gi, '');
+
+  try {
+    const jobs = [
+      { id: 'gen13751', fn: fillCerfa13751, name: `13751_achat_${safeImmat}.pdf`,    fallback: 'cerfa_13751.pdf' },
+      { id: 'gen15776', fn: fillCerfa15776, name: `15776_cession_${safeImmat}.pdf`,  fallback: 'cerfa_15776.pdf' },
+      { id: 'gen13754', fn: fillCerfa13754, name: `13754_archive_${safeImmat}.pdf`,  fallback: 'cerfa_13754.pdf' },
+    ];
+
+    for (const j of jobs) {
+      if (!$(j.id).checked) continue;
+      const bytes = await j.fn(d);
+      if (bytes) {
+        lastGenerated.push({ name: j.name, bytes, blobUrl: makeBlobUrl(bytes) });
+      } else {
+        missing.push(j.fallback);
+      }
+    }
+
+    // Afficher les fichiers manquants éventuels
+    if (missing.length) {
+      const div = document.createElement('div');
+      div.style.cssText = 'color:var(--bad); font-size:12.5px; margin-bottom:8px;';
+      div.innerHTML = '⚠ Cerfa source introuvable : <code>' + missing.join('</code>, <code>') +
+                      '</code><br>Placer ces fichiers à côté de cette page.';
+      $('dlActions').parentNode.insertBefore(div, $('dlActions'));
+    }
+
+    // Liens de téléchargement individuels (fallback navigateur)
+    lastGenerated.forEach(x => {
+      const a = document.createElement('a');
+      a.href = x.blobUrl; a.download = x.name; a.textContent = '⬇ ' + x.name;
+      links.appendChild(a);
+    });
+
+    // Hint sur le bouton "dossier"
+    const hint = $('dlHint');
+    if (!HAS_FS_ACCESS) {
+      $('btnSaveFolder').disabled = true;
+      hint.className = 'dl-hint warn';
+      hint.textContent = '(navigateur non supporté → utiliser les liens ci-dessous)';
+    } else {
+      hint.className = 'dl-hint';
+      hint.textContent = lastGenerated.length + ' fichier(s) prêt(s)';
+    }
+
+    $('downloads').classList.add('shown');
+    markStep(4);
+  } catch (err) {
+    alert('Erreur lors de la génération : ' + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Générer les PDF';
+  }
+});
+
+/* ---------- Enregistrer dans un dossier choisi (File System Access API) ---------- */
+$('btnSaveFolder').addEventListener('click', async () => {
+  if (!HAS_FS_ACCESS) {
+    alert('Votre navigateur ne permet pas le choix d\'un dossier.\n' +
+          'Utiliser les liens de téléchargement individuels en dessous, ' +
+          'ou ouvrir cette page avec Chrome / Edge.');
+    return;
+  }
+  if (!lastGenerated.length) {
+    alert('Aucun document généré. Cliquer d\'abord sur "Générer les PDF".');
+    return;
+  }
+
+  const btn = $('btnSaveFolder');
+  const hint = $('dlHint');
+
+  try {
+    // Suggestion d'un nom de dossier basé sur le contexte
+    const d = getAll();
+    const safeImmat = (d.immat || 'vehicule').replace(/[^A-Z0-9-]/gi, '');
+    const safeClient = (d.cNom || '').replace(/[^A-Z0-9 -]/gi, '').trim().replace(/\s+/g, '_').slice(0, 30);
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Demander à l'utilisateur de choisir un dossier
+    const dirHandle = await window.showDirectoryPicker({
+      mode: 'readwrite',
+      startIn: 'documents',
+      id: 'leasecar-cessions'  // mémorise le dernier emplacement
+    });
+
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement…';
+
+    // Optionnel : créer un sous-dossier pour ce dossier de cession
+    const subdirName = `${today}_${safeImmat}${safeClient ? '_' + safeClient : ''}`;
+    let targetDir;
+    try {
+      targetDir = await dirHandle.getDirectoryHandle(subdirName, { create: true });
+    } catch {
+      // Si on ne peut pas créer le sous-dossier (rare), tomber sur le dossier parent
+      targetDir = dirHandle;
+    }
+
+    // Écrire chaque PDF
+    for (const f of lastGenerated) {
+      const fh = await targetDir.getFileHandle(f.name, { create: true });
+      const writable = await fh.createWritable();
+      await writable.write(f.bytes);
+      await writable.close();
+    }
+
+    hint.className = 'dl-hint';
+    hint.innerHTML = '<span style="color:var(--ok); font-weight:600">✓ Enregistré dans ' +
+                     dirHandle.name + '/' + subdirName + '/</span>';
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      // L'utilisateur a annulé, pas grave
+      return;
+    }
+    console.error(err);
+    hint.className = 'dl-hint warn';
+    hint.textContent = '✗ ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📁 Enregistrer dans un dossier…';
+  }
+});
+
+/* Reset / Save / Load */
+$('btnReset').addEventListener('click', () => {
+  if (!confirm('Effacer tous les champs ?')) return;
+  fields.forEach(f => {
+    const el = $(f); if (!el) return;
+    if (el.tagName === 'SELECT') el.selectedIndex = 0;
+    else el.value = '';
+    el.classList.remove('filled');
+  });
+  // restaurer les valeurs LEASECAR par défaut
+  Object.entries(LEASECAR_DEFAULT).forEach(([k, v]) => {
+    const id = 'l' + k.charAt(0).toUpperCase() + k.slice(1).replace('typevoie','TypeVoie').replace('nomvoie','NomVoie');
+    // mapping manuel
+    const map = { nom:'lNom', siren:'lSiren', voie:'lVoie',
+                  typevoie:'lTypeVoie', nomvoie:'lNomVoie', cp:'lCP', commune:'lCommune' };
+    if (map[k]) setVal(map[k], v);
+  });
+  $('downloads').classList.remove('shown');
+  $('cgPreview').classList.remove('shown');
+  status.className = 'ocr-status';
+  status.firstChild.textContent = 'En attente d\'une image…';
+  bar.style.width = '0%';
+  toggleClient();
+  markStep(1);
+  $('dateCession').value = new Date().toISOString().slice(0,10);
+});
+
+$('btnSave').addEventListener('click', () => {
+  const data = getAll();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cession_${data.immat || 'draft'}_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+});
+$('btnLoad').addEventListener('click', () => $('loadInput').click());
+$('loadInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { setAll(JSON.parse(await f.text())); markStep(2); }
+  catch { alert('Fichier JSON invalide.'); }
+});
+
+/* Init */
+initBanques();
+toggleClient();
+$('dateCession').value = new Date().toISOString().slice(0,10);
+
+// auto-passage à l'étape 4 quand tout est rempli
+['cNom', 'cAdresse', 'cCommune'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('blur', () => {
+    if ($('immat').value && $('bNom').value && $('cNom').value) markStep(4);
+  });
+});
+
+</script>
+</body>
+</html>
