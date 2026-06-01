@@ -374,6 +374,96 @@
   .step.active .num { background: var(--accent); color: var(--paper); border-color: var(--accent); }
   .step.done { color: var(--ok); }
   .step.done .num { background: var(--ok); color: var(--paper); border-color: var(--ok); }
+
+  /* Sélecteur de mode Achat/Vente */
+  .mode-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .mode-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+  }
+  .mode-btn {
+    flex: 1;
+    min-width: 220px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px !important;
+    text-align: left;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+    font-weight: 500 !important;
+    background: #fbf8f1;
+    border: 2px solid var(--line-soft) !important;
+    color: var(--ink) !important;
+    transition: all 0.15s;
+  }
+  .mode-btn:hover {
+    background: var(--paper) !important;
+    border-color: var(--ink) !important;
+  }
+  .mode-btn.active {
+    background: var(--accent-soft) !important;
+    border-color: var(--accent) !important;
+    color: var(--ink) !important;
+  }
+  .mode-btn .mode-icon {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .mode-btn .mode-text strong {
+    display: block;
+    font-size: 13px;
+    font-variant-caps: small-caps;
+    letter-spacing: 0.04em;
+  }
+  .mode-btn .mode-text small {
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  /* Affichage conditionnel des labels d'étape */
+  body.mode-vente .step-label-achat { display: none; }
+  body.mode-achat .step-label-vente { display: none; }
+  body:not(.mode-vente):not(.mode-achat) .step-label-vente,
+  body:not(.mode-vente):not(.mode-achat) .step-label-achat { display: none; }
+  body:not(.mode-vente):not(.mode-achat) #step2::after { content: ' Étape 2'; color: var(--ink-soft); font-size: 11px; }
+  /* Affichage conditionnel des sections */
+  body.mode-vente #banqueFieldset,
+  body.mode-vente .docs-choice-wrap { display: none; }
+  body.mode-achat #clientFieldset,
+  body.mode-achat .docs-choice-wrap { display: none; }
+  /* Désactivation du panneau Parties si aucun mode sélectionné */
+  body:not(.mode-vente):not(.mode-achat) #partiesPanel {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  body:not(.mode-vente):not(.mode-achat) #partiesPanel::after {
+    content: 'Sélectionner d\'abord le type d\'opération en haut de la page';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--paper);
+    border: 1px solid var(--warn);
+    padding: 10px 16px;
+    font-size: 12.5px;
+    color: var(--warn);
+    pointer-events: auto;
+    opacity: 1;
+  }
+  #partiesPanel { position: relative; }
 </style>
 </head>
 <body>
@@ -398,11 +488,28 @@
     Les images (JPG/PNG) fonctionnent normalement.
   </div>
 
-  <div class="steps">
+  <div class="mode-selector">
+    <div class="mode-label">Type d'opération :</div>
+    <button type="button" class="mode-btn" data-mode="vente" id="modeVente">
+      <span class="mode-icon">→</span>
+      <span class="mode-text">
+        <strong>VENTE</strong>
+        <small>LEASECAR vend à un client final</small>
+      </span>
+    </button>
+    <button type="button" class="mode-btn" data-mode="achat" id="modeAchat">
+      <span class="mode-icon">←</span>
+      <span class="mode-text">
+        <strong>ACHAT</strong>
+        <small>LEASECAR rachète à un financeur</small>
+      </span>
+    </button>
+  </div>
+
+  <div class="steps" id="stepsContainer">
     <div class="step active" id="step1"><span class="num">1</span> Carte grise (OCR)</div>
-    <div class="step" id="step2"><span class="num">2</span> Banque vendeuse</div>
-    <div class="step" id="step3"><span class="num">3</span> Acquéreur final</div>
-    <div class="step" id="step4"><span class="num">4</span> Génération PDF</div>
+    <div class="step" id="step2"><span class="num">2</span><span class="step-label-vente">Acquéreur final</span><span class="step-label-achat">Financeur (vendeur)</span></div>
+    <div class="step" id="step3"><span class="num">3</span> Génération PDF</div>
   </div>
 
   <div class="grid">
@@ -484,8 +591,8 @@
       <h3>Cession</h3>
 
       <div class="field">
-        <label>Kilométrage</label>
-        <input type="number" id="kilometrage" placeholder="87543">
+        <label>Kilométrage <span style="color:var(--bad)">*</span></label>
+        <input type="number" id="kilometrage" placeholder="ex: 87543" required>
       </div>
 
       <div class="row-2">
@@ -501,20 +608,20 @@
 
       <div class="field">
         <label>Lieu de cession</label>
-        <input type="text" id="lieuCession" placeholder="LE PORT" style="text-transform:uppercase">
+        <input type="text" id="lieuCession" value="LE PORT" readonly title="Lieu fixe (siège LEASECAR)" style="background:#f5f0e5; color:var(--ink-soft); text-transform:uppercase">
       </div>
     </section>
 
     <!-- ============ COLONNE 2 : BANQUE + ACQUÉREUR ============ -->
-    <section class="panel">
-      <h2>Parties <span class="tag">Banque → LEASECAR → Acquéreur</span></h2>
+    <section class="panel" id="partiesPanel">
+      <h2>Parties <span class="tag" id="partiesTag">Sélectionner le type d'opération</span></h2>
 
-      <fieldset>
-        <legend>1 · Banque cédante (vendeur du Cerfa 13751)</legend>
+      <fieldset id="banqueFieldset">
+        <legend>Financeur (vendeur du Cerfa 13751)</legend>
         <div class="field">
           <label>Sélectionner</label>
           <select id="banqueSel">
-            <option value="">— Choisir une banque —</option>
+            <option value="">— Choisir un financeur —</option>
             <!-- options injectées par JS depuis BANQUES -->
           </select>
         </div>
@@ -555,7 +662,7 @@
       </fieldset>
 
       <fieldset>
-        <legend>2 · LEASECAR (acquéreur 13751, vendeur 15776/13754)</legend>
+        <legend>LEASECAR</legend>
         <p style="font-size:12px; color:var(--ink-soft); margin:0 0 4px;">Pré-rempli. Modifier si évolution.</p>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
@@ -593,8 +700,8 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>3 · Acquéreur final (client du Cerfa 15776/13754)</legend>
+      <fieldset id="clientFieldset">
+        <legend>Acquéreur final (client du Cerfa 15776)</legend>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
             <label>Type</label>
@@ -655,20 +762,17 @@
         </div>
       </fieldset>
 
-      <h3>Documents à générer</h3>
-      <div class="docs-choice">
-        <label><input type="checkbox" id="gen13751" checked> <b>Cerfa 13751</b> — Déclaration d'achat (banque → LEASECAR)</label>
-        <label><input type="checkbox" id="gen15776" checked> <b>Cerfa 15776</b> — Certificat de cession (LEASECAR → acquéreur)</label>
-        <label><input type="checkbox" id="gen13754" checked> <b>Cerfa 13754</b> — Déclaration de cession (archive)</label>
-      </div>
+      <!-- Checkboxes cachées : la sélection est gérée par le mode Achat/Vente -->
+      <input type="checkbox" id="gen13751" checked style="display:none">
+      <input type="checkbox" id="gen15776" checked style="display:none">
 
       <div class="notice">
-        <strong>⚠ Premier usage</strong> — Placer les 3 PDF Cerfa originaux dans le même dossier que cette page :
-        <code>cerfa_13751.pdf</code>, <code>cerfa_15776.pdf</code>, <code>cerfa_13754.pdf</code>.
+        <strong>⚠ Premier usage</strong> — Placer les 2 PDF Cerfa originaux dans le même dossier que cette page :
+        <code>cerfa_13751.pdf</code>, <code>cerfa_15776.pdf</code>.
       </div>
 
       <div class="actions">
-        <button type="button" class="primary" id="btnGenerate">Générer les PDF</button>
+        <button type="button" class="primary" id="btnGenerate">Générer le PDF</button>
         <button type="button" class="ghost" id="btnReset">Réinitialiser</button>
         <button type="button" class="ghost" id="btnSave">Sauvegarder (JSON)</button>
         <button type="button" class="ghost" id="btnLoad">Charger</button>
@@ -818,7 +922,7 @@ function initBanques() {
     setVal('bNomVoie', b.nomvoie);
     setVal('bCP', b.cp);
     setVal('bCommune', b.commune);
-    markStep(3);
+    if (currentMode === 'achat') markStep(3);  // en achat, sélection banque = on peut générer
   });
 }
 
@@ -832,10 +936,11 @@ function toggleClient() {
 }
 $('cType').addEventListener('change', toggleClient);
 
-/* Steps */
+/* Steps (3 étapes maintenant : OCR → Parties → Génération) */
 function markStep(n) {
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 3; i++) {
     const el = $('step' + i);
+    if (!el) continue;
     el.classList.remove('active','done');
     if (i < n) el.classList.add('done');
     else if (i === n) el.classList.add('active');
@@ -1296,56 +1401,56 @@ async function fillCerfa15776(d) {
     D.put(442, 162, d.modele);
     D.put(215, 173, d.kilometrage);
 
-    // Numéro de formule
-    D.check(38, 208);
-    D.put(175, 199, d.numFormule);
+    // Numéro de formule (remonté pour ne pas chevaucher)
+    D.check(36, 203);
+    D.put(175, 195, d.numFormule);
 
     // === Ancien propriétaire = LEASECAR ===
-    D.check(38, 268);  // Personne morale
-    D.put(100, 295, d.lNom);
-    D.put(460, 295, d.lSiren);
-    D.put(100, 325, d.lVoie);
-    D.put(215, 325, d.lTypeVoie);
-    D.put(290, 325, d.lNomVoie);
-    D.put(105, 351, d.lCP);
-    D.put(215, 351, d.lCommune);
+    D.check(36, 264);  // Personne morale
+    D.put(100, 290, d.lNom);
+    D.put(460, 290, d.lSiren);
+    D.put(100, 322, d.lVoie);
+    D.put(215, 322, d.lTypeVoie);
+    D.put(290, 322, d.lNomVoie);
+    D.put(105, 345, d.lCP);
+    D.put(215, 345, d.lCommune);
 
-    D.check(247, 361);  // céder
-    D.put(50,  386, dCess.j);
-    D.put(80,  386, dCess.m);
-    D.put(110, 386, dCess.a);
-    D.put(175, 386, t.h);
-    D.put(205, 386, t.min);
+    D.check(246, 358);  // céder
+    D.put(48,  383, dCess.j);
+    D.put(78,  383, dCess.m);
+    D.put(108, 383, dCess.a);
+    D.put(175, 383, t.h);
+    D.put(205, 383, t.min);
 
     D.put(70,  513, d.lieuCession);
     D.put(215, 513, dCess.full);
 
     // === Nouveau propriétaire = CLIENT ===
     if (d.cType === 'physique') {
-      D.check(38, 597);
-      if (d.cSexe === 'M') D.check(295, 597);
-      else D.check(322, 597);
+      D.check(36, 593);
+      if (d.cSexe === 'M') D.check(304, 593);
+      else D.check(332, 593);
     } else {
-      D.check(38, 607);
+      D.check(36, 603);
     }
-    D.put(100, 626, d.cNom);
-    D.put(460, 626, d.cSiret);
+    D.put(100, 622, d.cNom);
+    D.put(460, 622, d.cSiret);
 
     if (d.cType === 'physique') {
       const dn = fmtDate(d.cDateN);
-      D.put(90,  650, dn.full);
-      D.put(220, 650, d.cLieuN);
+      D.put(90,  645, dn.full);
+      D.put(220, 645, d.cLieuN);
     }
-    D.put(100, 669, d.cVoie);
-    D.put(215, 669, d.cTypeVoie);
-    D.put(290, 669, d.cNomVoie);
-    D.put(105, 695, d.cCP);
-    D.put(215, 695, d.cCommune);
+    D.put(100, 665, d.cVoie);
+    D.put(215, 665, d.cTypeVoie);
+    D.put(290, 665, d.cNomVoie);
+    D.put(105, 691, d.cCP);
+    D.put(215, 691, d.cCommune);
 
-    D.check(38, 725);
-    D.check(38, 738);
-    D.put(70,  768, d.lieuCession);
-    D.put(215, 768, dCess.full);
+    D.check(36, 722);
+    D.check(36, 735);
+    D.put(70,  765, d.lieuCession);
+    D.put(215, 765, dCess.full);
   }
 
   return await pdf.save();
@@ -1538,9 +1643,41 @@ function makeBlobUrl(bytes) {
 $('btnGenerate').addEventListener('click', async () => {
   const d = getAll();
 
-  // Validation basique
+  // ===== Validations bloquantes =====
+
+  // 1. Un mode doit être sélectionné
+  if (!currentMode) {
+    alert('Veuillez d\'abord sélectionner le type d\'opération (Vente ou Achat) en haut de la page.');
+    return;
+  }
+
+  // 2. Kilométrage obligatoire
+  if (!d.kilometrage || parseInt(d.kilometrage, 10) <= 0) {
+    alert('Le kilométrage est obligatoire pour générer le Cerfa.\nVeuillez saisir le kilométrage du véhicule.');
+    $('kilometrage').focus();
+    $('kilometrage').style.borderColor = 'var(--bad)';
+    setTimeout(() => { $('kilometrage').style.borderColor = ''; }, 3000);
+    return;
+  }
+
+  // 3. Immat / VIN (warning soft seulement)
   if (!d.immat || !d.vin) {
-    if (!confirm('Immatriculation ou VIN manquant. Continuer ?')) return;
+    if (!confirm('Immatriculation ou VIN manquant. Continuer quand même ?')) return;
+  }
+
+  // 4. Selon le mode, vérifier les champs propres au mode
+  if (currentMode === 'vente') {
+    if (!d.cNom) {
+      alert('Le nom de l\'acquéreur est obligatoire pour une vente.');
+      $('cNom').focus();
+      return;
+    }
+  } else if (currentMode === 'achat') {
+    if (!d.bNom) {
+      alert('Le financeur est obligatoire pour un achat. Sélectionnez-le dans la liste.');
+      $('banqueSel').focus();
+      return;
+    }
   }
 
   const btn = $('btnGenerate');
@@ -1558,14 +1695,12 @@ $('btnGenerate').addEventListener('click', async () => {
   const safeImmat = (d.immat || 'vehicule').replace(/[^A-Z0-9-]/gi, '');
 
   try {
-    const jobs = [
-      { id: 'gen13751', fn: fillCerfa13751, name: `13751_achat_${safeImmat}.pdf`,    fallback: 'cerfa_13751.pdf' },
-      { id: 'gen15776', fn: fillCerfa15776, name: `15776_cession_${safeImmat}.pdf`,  fallback: 'cerfa_15776.pdf' },
-      { id: 'gen13754', fn: fillCerfa13754, name: `13754_archive_${safeImmat}.pdf`,  fallback: 'cerfa_13754.pdf' },
-    ];
+    // Seul le Cerfa correspondant au mode est généré
+    const jobs = currentMode === 'vente'
+      ? [{ fn: fillCerfa15776, name: `15776_vente_${safeImmat}.pdf`, fallback: 'cerfa_15776.pdf' }]
+      : [{ fn: fillCerfa13751, name: `13751_achat_${safeImmat}.pdf`, fallback: 'cerfa_13751.pdf' }];
 
     for (const j of jobs) {
-      if (!$(j.id).checked) continue;
       const bytes = await j.fn(d);
       if (bytes) {
         lastGenerated.push({ name: j.name, bytes, blobUrl: makeBlobUrl(bytes) });
@@ -1602,13 +1737,13 @@ $('btnGenerate').addEventListener('click', async () => {
     }
 
     $('downloads').classList.add('shown');
-    markStep(4);
+    markStep(3);
   } catch (err) {
     alert('Erreur lors de la génération : ' + err.message);
     console.error(err);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Générer les PDF';
+    btn.textContent = currentMode === 'vente' ? 'Générer Cerfa 15776 (Vente)' : 'Générer Cerfa 13751 (Achat)';
   }
 });
 
@@ -1736,18 +1871,45 @@ $('loadInput').addEventListener('change', async e => {
   catch { alert('Fichier JSON invalide.'); }
 });
 
+/* ===== Gestion du mode Achat / Vente ===== */
+let currentMode = null;   // 'vente' | 'achat' | null
+
+function setMode(mode) {
+  currentMode = mode;
+  document.body.classList.remove('mode-vente', 'mode-achat');
+  document.body.classList.add('mode-' + mode);
+
+  // Mise à jour des boutons (style actif)
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+
+  // Tag dans le titre Parties
+  const tag = $('partiesTag');
+  if (tag) {
+    tag.textContent = mode === 'vente' ? 'LEASECAR → Client' : 'Financeur → LEASECAR';
+  }
+
+  // Bouton génération
+  const btnGen = $('btnGenerate');
+  if (btnGen) {
+    btnGen.textContent = mode === 'vente'
+      ? 'Générer Cerfa 15776 (Vente)'
+      : 'Générer Cerfa 13751 (Achat)';
+  }
+
+  // Reset étape
+  markStep(1);
+}
+
+$('modeVente').addEventListener('click', () => setMode('vente'));
+$('modeAchat').addEventListener('click', () => setMode('achat'));
+
 /* Init */
 initBanques();
 toggleClient();
 $('dateCession').value = new Date().toISOString().slice(0,10);
-
-// auto-passage à l'étape 4 quand tout est rempli
-['cNom', 'cAdresse', 'cCommune'].forEach(id => {
-  const el = $(id);
-  if (el) el.addEventListener('blur', () => {
-    if ($('immat').value && $('bNom').value && $('cNom').value) markStep(4);
-  });
-});
+// Pas de mode par défaut : l'utilisateur doit choisir explicitement
 
 </script>
 </body>
