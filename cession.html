@@ -848,41 +848,44 @@ const bar = $('ocrBar');
 
 dz.addEventListener('click', () => fi.click());
 
-// IMPORTANT : sans ces handlers globaux, si on rate la dropzone, le navigateur
-// ouvre le PDF dans un onglet (comportement par défaut). On bloque ça partout
-// sauf sur la dropzone elle-même.
-['dragover', 'drop'].forEach(evt => {
-  window.addEventListener(evt, e => {
-    // Ne bloque que si le drop n'est pas géré par la dropzone
-    if (!e.target.closest('#dropzone')) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }, false);
-});
+// ========== Drag & Drop universel ==========
+// Stratégie : empêcher partout sur la page le comportement par défaut (ouverture
+// du fichier dans un onglet), puis détecter géométriquement si le drop a eu lieu
+// sur la dropzone. Plus fiable que de tester e.target (qui peut être un enfant
+// du <label>, créant des faux négatifs).
 
-dz.addEventListener('dragover', e => {
+function isInDropzone(e) {
+  const rect = dz.getBoundingClientRect();
+  return e.clientX >= rect.left && e.clientX <= rect.right
+      && e.clientY >= rect.top  && e.clientY <= rect.bottom;
+}
+
+// On bloque le défaut sur dragover ET drop sur toute la page
+window.addEventListener('dragover', e => {
   e.preventDefault();
-  e.stopPropagation();
-  e.dataTransfer.dropEffect = 'copy';   // curseur "+" au lieu de l'interdit
-  dz.classList.add('drag');
-});
-dz.addEventListener('dragenter', e => {
+  // Curseur "+" si on est sur la dropzone, "interdit" sinon
+  if (isInDropzone(e)) {
+    e.dataTransfer.dropEffect = 'copy';
+    dz.classList.add('drag');
+  } else {
+    e.dataTransfer.dropEffect = 'none';
+    dz.classList.remove('drag');
+  }
+}, false);
+
+window.addEventListener('dragleave', e => {
+  if (!isInDropzone(e)) dz.classList.remove('drag');
+}, false);
+
+window.addEventListener('drop', e => {
   e.preventDefault();
-  e.stopPropagation();
-  dz.classList.add('drag');
-});
-dz.addEventListener('dragleave', e => {
-  // Ne retire le style que si on quitte vraiment la dropzone (pas un enfant)
-  if (e.target === dz) dz.classList.remove('drag');
-});
-dz.addEventListener('drop', e => {
-  e.preventDefault();
-  e.stopPropagation();
   dz.classList.remove('drag');
+  if (!isInDropzone(e)) return;   // drop en dehors → on ignore
+
   const file = e.dataTransfer.files[0];
   if (file) handleFile(file);
-});
+}, false);
+
 fi.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
 // Configuration PDF.js avec fallback robuste
