@@ -464,6 +464,62 @@
     opacity: 1;
   }
   #partiesPanel { position: relative; }
+
+  /* Modale aperçu PDF */
+  .preview-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .preview-modal-content {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    width: 100%;
+    max-width: 900px;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .preview-modal-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    background: #fbf8f1;
+  }
+  .preview-close {
+    background: none !important;
+    border: none !important;
+    font-size: 20px !important;
+    padding: 4px 10px !important;
+    cursor: pointer;
+    color: var(--ink-soft) !important;
+    letter-spacing: 0 !important;
+  }
+  .preview-close:hover { color: var(--bad) !important; background: none !important; }
+  #previewFrame {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: #525659;
+  }
+  .preview-modal-footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    background: #fbf8f1;
+  }
+  .preview-modal-footer button { font-size: 12px !important; padding: 8px 14px !important; }
 </style>
 </head>
 <body>
@@ -525,8 +581,8 @@
       </label>
 
       <div class="ocr-options">
-        <label title="Convertit en noir et blanc avec contraste renforcé. Recommandé pour scans flous, photos sombres, photocopies dégradées. Actif par défaut.">
-          <input type="checkbox" id="optPreproc" checked>
+        <label title="Convertit en noir et blanc avec contraste renforcé. Recommandé pour scans flous, photos sombres, photocopies dégradées.">
+          <input type="checkbox" id="optPreproc">
           Améliorer scan dégradé (noir & blanc)
         </label>
         <button type="button" class="ghost btn-mini" id="btnReocr" disabled title="Re-lancer l'OCR avec les options actuelles">
@@ -782,8 +838,14 @@
       <div class="download-list" id="downloads">
         <h3>✓ Documents générés</h3>
         <div class="dl-actions" id="dlActions">
-          <button type="button" class="primary" id="btnSaveFolder" title="Choisir un dossier où enregistrer les 3 PDF d'un coup">
-            📁 Enregistrer dans un dossier…
+          <button type="button" class="primary" id="btnPreview" title="Visualiser le PDF avant de l'enregistrer ou l'imprimer">
+            👁 Aperçu
+          </button>
+          <button type="button" id="btnSaveFolder" title="Choisir un dossier où enregistrer le PDF">
+            📁 Enregistrer sous…
+          </button>
+          <button type="button" id="btnPrint" title="Imprimer directement le PDF">
+            🖨 Imprimer
           </button>
           <span class="dl-hint" id="dlHint"></span>
         </div>
@@ -792,6 +854,22 @@
     </section>
   </div>
 </main>
+
+<!-- Modale aperçu PDF -->
+<div id="previewModal" class="preview-modal" style="display:none">
+  <div class="preview-modal-content">
+    <div class="preview-modal-header">
+      <strong id="previewTitle">Aperçu PDF</strong>
+      <button type="button" id="previewClose" class="preview-close" title="Fermer">✕</button>
+    </div>
+    <iframe id="previewFrame" src="about:blank"></iframe>
+    <div class="preview-modal-footer">
+      <button type="button" id="previewSave" class="primary">📁 Enregistrer sous…</button>
+      <button type="button" id="previewPrint">🖨 Imprimer</button>
+      <button type="button" id="previewCloseBtn">Fermer</button>
+    </div>
+  </div>
+</div>
 
 <footer>
   v2.0 · 10Positif · SARL · La Réunion (974) · 2026
@@ -933,6 +1011,17 @@ function toggleClient() {
   $('cSexeWrap').style.display = isMoral ? 'none' : '';
   $('cSiretWrap').style.display = isMoral ? '' : 'none';
   $('cNaissWrap').style.display = isMoral ? 'none' : '';
+
+  // Adapter le label et placeholder du nom selon le type
+  const cNomEl = $('cNom');
+  const cNomLabel = cNomEl.closest('.field').querySelector('label');
+  if (isMoral) {
+    cNomLabel.textContent = 'Raison sociale';
+    cNomEl.placeholder = 'ex: SARL DUPONT, SCI MARTIN…';
+  } else {
+    cNomLabel.textContent = 'Nom / Prénom';
+    cNomEl.placeholder = 'ex: DUPONT JEAN';
+  }
 }
 $('cType').addEventListener('change', toggleClient);
 
@@ -1346,19 +1435,26 @@ async function tryLoad(name) {
 }
 
 // Factory qui crée les helpers drawAt/check liés à une police
-// Conversion : pdf-lib utilise y depuis le bas, on travaille en y_top
+// Convention : yTop = position de la BASELINE du texte (où il repose)
+// pdf-lib utilise y depuis le bas, donc baseline = h - yTop
 function makeDrawer(page, fontR, fontB) {
   const h = page.getHeight();
   return {
     put: (x, yTop, text, size = 9.5) => {
       if (text === undefined || text === null || text === '') return;
-      page.drawText(String(text), { x, y: h - yTop - size, size, font: fontR });
+      page.drawText(String(text), { x, y: h - yTop, size, font: fontR });
     },
     check: (x, yTop) => {
-      page.drawText('X', { x, y: h - yTop - 9, size: 9, font: fontB });
+      // Pour la coche X, on place sa baseline juste sous le centre de la case
+      page.drawText('X', { x, y: h - yTop, size: 9, font: fontB });
     }
   };
 }
+
+// ⚙️ OFFSETS DE CALIBRATION — Ajustables si besoin pour s'aligner avec les lignes
+// Augmenter Y_OFFSET_15776 pour descendre le texte (en pt)
+const Y_OFFSET_15776 = 7;   // décalage global vers le bas sur le 15776
+const Y_OFFSET_13751 = 0;   // 13751 utilise AcroForm donc pas d'offset nécessaire
 function fmtDate(iso) {
   if (!iso) return { j:'', m:'', a:'', full:'' };
   const [y, m, d] = iso.split('-');
@@ -1372,86 +1468,124 @@ function fmtTime(hhmm) {
 
 /* ============================================================
    CERFA 15776 — Cession LEASECAR → CLIENT
+   Utilise le PDF OFFICIEL remplissable (cartegrise.com/ministère)
+   avec ses vrais champs AcroForm. Remplissage natif, alignement parfait.
    ============================================================ */
 async function fillCerfa15776(d) {
   const buf = await tryLoad('cerfa_15776.pdf');
   if (!buf) return null;
   const pdf = await PDFDocument.load(buf);
-
-  const fontR = await pdf.embedFont(StandardFonts.Helvetica);
-  const fontB = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const form = pdf.getForm();
 
   const dCess = fmtDate(d.dateCession);
   const dImmat = fmtDate(d.dateImmat);
   const t = fmtTime(d.heureCession);
 
-  // page 0 et page 1 (exemplaires identiques)
-  for (const pageIdx of [0, 1]) {
-    if (pageIdx >= pdf.getPageCount()) break;
-    const p = pdf.getPage(pageIdx);
-    const D = makeDrawer(p, fontR, fontB);
+  // Helpers pour remplir sur les 2 exemplaires (Page1 + Page2)
+  const prefix = (page) => `topmostSubform[0].Page${page}[0]`;
 
-    // === Véhicule ===
-    D.put(38,  138, d.immat);
-    D.put(175, 138, d.vin);
-    D.put(442, 138, dImmat.full);
-    D.put(38,  162, d.marque);
-    D.put(180, 162, d.typeVar);
-    D.put(325, 162, d.genre);
-    D.put(442, 162, d.modele);
-    D.put(215, 173, d.kilometrage);
-
-    // Numéro de formule (remonté pour ne pas chevaucher)
-    D.check(36, 203);
-    D.put(175, 195, d.numFormule);
-
-    // === Ancien propriétaire = LEASECAR ===
-    D.check(36, 264);  // Personne morale
-    D.put(100, 290, d.lNom);
-    D.put(460, 290, d.lSiren);
-    D.put(100, 322, d.lVoie);
-    D.put(215, 322, d.lTypeVoie);
-    D.put(290, 322, d.lNomVoie);
-    D.put(105, 345, d.lCP);
-    D.put(215, 345, d.lCommune);
-
-    D.check(246, 358);  // céder
-    D.put(48,  383, dCess.j);
-    D.put(78,  383, dCess.m);
-    D.put(108, 383, dCess.a);
-    D.put(175, 383, t.h);
-    D.put(205, 383, t.min);
-
-    D.put(70,  513, d.lieuCession);
-    D.put(215, 513, dCess.full);
-
-    // === Nouveau propriétaire = CLIENT ===
-    if (d.cType === 'physique') {
-      D.check(36, 593);
-      if (d.cSexe === 'M') D.check(304, 593);
-      else D.check(332, 593);
-    } else {
-      D.check(36, 603);
+  const setText = (shortname, value) => {
+    if (!value && value !== 0) return;
+    for (const page of [1, 2]) {
+      try {
+        const f = form.getTextField(`${prefix(page)}.${shortname}`);
+        f.setText(String(value));
+      } catch (e) { /* champ absent ou trop long, on ignore */ }
     }
-    D.put(100, 622, d.cNom);
-    D.put(460, 622, d.cSiret);
-
-    if (d.cType === 'physique') {
-      const dn = fmtDate(d.cDateN);
-      D.put(90,  645, dn.full);
-      D.put(220, 645, d.cLieuN);
+  };
+  const setRadio = (groupName, value) => {
+    for (const page of [1, 2]) {
+      try {
+        form.getRadioGroup(`${prefix(page)}.${groupName}`).select(value);
+      } catch (e) { /* ignore */ }
     }
-    D.put(100, 665, d.cVoie);
-    D.put(215, 665, d.cTypeVoie);
-    D.put(290, 665, d.cNomVoie);
-    D.put(105, 691, d.cCP);
-    D.put(215, 691, d.cCommune);
+  };
+  const setCheck = (shortname, val = true) => {
+    for (const page of [1, 2]) {
+      try {
+        const f = form.getCheckBox(`${prefix(page)}.${shortname}`);
+        if (val) f.check(); else f.uncheck();
+      } catch (e) { /* ignore */ }
+    }
+  };
 
-    D.check(36, 722);
-    D.check(36, 735);
-    D.put(70,  765, d.lieuCession);
-    D.put(215, 765, dCess.full);
+  // ===== Véhicule =====
+  setText('num_Immatriculation[0]', d.immat);
+  setText('num_Identification[0]', d.vin);
+  if (dImmat.j) {
+    setText('num_DateImmatriculationJour[0]', dImmat.j);
+    setText('num_DateImmatriculationMois[0]', dImmat.m);
+    setText('num_DateImmatriculationAnnée[0]', dImmat.a);
   }
+  setText('txt_MarqueVéhicule[0]', d.marque);
+  setText('txt_TypeVarianteVersionVéhicule[0]', d.typeVar);
+  setText('txt_GenreNational[0]', d.genre);
+  setText('txt_DénominationCommerciale[0]', d.modele);
+  setText('num_KilométrageCompteur[0]', d.kilometrage);
+
+  // Numéro de formule : le "20" préfixe est déjà imprimé sur le PDF,
+  // on n'envoie que les 9 caractères suivants
+  if (d.numFormule) {
+    const formuleSansPrefixe = d.numFormule.replace(/^20/, '');
+    setText('num_Formule[0]', formuleSansPrefixe);
+    setRadio('Groupe_de_boutons_radio1[0]', '1');  // OUI
+  }
+
+  // ===== Ancien propriétaire (LEASECAR = SAS = morale) =====
+  setRadio('Groupe_de_boutons_radio3[0]', '1');   // Personne morale
+
+  setText('txt_IdentitéVendeur[0]', d.lNom);
+  setText('Num_Siret[0]', d.lSiren);
+  setText('num_VoieAdresse[0]', d.lVoie);
+  setText('txt_TypeVoieAdresse[0]', d.lTypeVoie);
+  setText('txt_NomVoie[0]', d.lNomVoie);
+  setText('num_CodePostalAdresse[0]', d.lCP);
+  setText('txt_CommuneAdresse[0]', d.lCommune);
+
+  // Céder (radio4 position 1)
+  setRadio('Groupe_de_boutons_radio4[0]', '1');
+
+  // Date + heure cession
+  setText('num_DateVenteJour[0]', dCess.j);
+  setText('num_DateVenteMois[0]', dCess.m);
+  setText('num_DateVenteAnnée[0]', dCess.a);
+  setText('num_HoraireVente1[0]', t.h);
+  setText('num_HoraireVente2[0]', t.min);
+
+  setText('txt_LieuDéclaration1[0]', d.lieuCession);
+  setText('num_DateDéclaration[0]', dCess.full);
+
+  // ===== Nouveau propriétaire (CLIENT) =====
+  if (d.cType === 'physique') {
+    setRadio('Groupe_de_boutons_radio5[0]', '2');   // Personne physique
+    if (d.cSexe === 'M') {
+      setRadio('Groupe_de_boutons_radio6[0]', '1');
+    } else {
+      setRadio('Groupe_de_boutons_radio6[0]', '2');
+    }
+    const dn = fmtDate(d.cDateN);
+    setText('num_DateNaissanceAcheteurJ[0]', dn.j);
+    setText('num_DateNaissanceAcheteurM[0]', dn.m);
+    setText('num_DateNaissanceAcheteurA[0]', dn.a);
+    setText('txt_LieuNaissanceAcheteur[0]', d.cLieuN);
+  } else {
+    setRadio('Groupe_de_boutons_radio5[0]', '1');   // Personne morale
+    setText('num_SiretAcheteur[0]', d.cSiret);
+  }
+
+  setText('txt_IdentitéAcheteur[0]', d.cNom);
+  setText('num_VoieAdresseAcheteur[0]', d.cVoie);
+  setText('txt_TypeVoieAdresseAcheteur[0]', d.cTypeVoie);
+  setText('txt_NomVoieAdresseAcheteur[0]', d.cNomVoie);
+  setText('num_CodePostalAdresseAcheteur[0]', d.cCP);
+  setText('txt_CommuneAdresseAcheteur[0]', d.cCommune);
+
+  // Acquérir + Avoir été informé
+  setCheck('ckb_ValidationDéclarationA1[0]', true);
+  setCheck('ckb_ValidationDéclarationA2[0]', true);
+
+  setText('txt_LieuDéclaration2[0]', d.lieuCession);
+  setText('txt_dateDéclaration[0]', dCess.full);
 
   return await pdf.save();
 }
@@ -1615,9 +1749,9 @@ async function fillCerfa13751(d) {
   // Cases à cocher : dessin direct par-dessus
   const p = pdf.getPage(0);
   const D = makeDrawer(p, fontR, fontB);
-  D.check(159, 91);   // professionnel automobile
-  D.check(100, 153);  // acheté
-  D.check(313, 240);  // OUI présence certificat
+  D.check(174, 89);   // "professionnel du commerce de l'automobile" (case carrée à gauche du label)
+  D.check(116, 167);  // "acheté" (case carrée devant le mot)
+  D.check(326, 271);  // "OUI" présence du certificat d'immatriculation
 
   // Aplatir le formulaire pour éviter les modifications ultérieures
   // (commenté car parfois trop agressif, l'utilisateur peut préférer un PDF éditable)
@@ -1846,7 +1980,7 @@ $('btnReset').addEventListener('click', () => {
   $('cgImg').style.display = 'block';
   $('cgCanvas').style.display = 'none';
   $('btnReocr').disabled = true;
-  $('optPreproc').checked = true;
+  $('optPreproc').checked = false;
   lastImageBitmap = null;
   status.className = 'ocr-status';
   status.firstChild.textContent = 'En attente d\'un fichier…';
@@ -1910,6 +2044,66 @@ initBanques();
 toggleClient();
 $('dateCession').value = new Date().toISOString().slice(0,10);
 // Pas de mode par défaut : l'utilisateur doit choisir explicitement
+/* ===== Aperçu / Imprimer ===== */
+function openPreview() {
+  if (!lastGenerated.length) {
+    alert('Aucun document généré. Cliquer d\'abord sur "Générer".');
+    return;
+  }
+  const f = lastGenerated[0];   // un seul PDF par mode (achat ou vente)
+  $('previewTitle').textContent = '👁 Aperçu — ' + f.name;
+  $('previewFrame').src = f.blobUrl;
+  $('previewModal').style.display = 'flex';
+}
+function closePreview() {
+  $('previewModal').style.display = 'none';
+  // On ne révoque pas l'URL ici car on peut vouloir réouvrir
+}
+function printPDF() {
+  if (!lastGenerated.length) {
+    alert('Aucun document généré.');
+    return;
+  }
+  const f = lastGenerated[0];
+  // Ouvrir le PDF dans un nouvel onglet/fenêtre et déclencher l'impression
+  const w = window.open(f.blobUrl, '_blank');
+  if (w) {
+    // Petit délai pour laisser le PDF charger avant d'invoquer print
+    setTimeout(() => {
+      try { w.print(); } catch (e) { /* certaines configs bloquent print auto */ }
+    }, 800);
+  } else {
+    alert('Le navigateur a bloqué l\'ouverture. Autoriser les pop-ups ou utiliser le bouton "Aperçu" puis imprimer depuis là.');
+  }
+}
+
+$('btnPreview').addEventListener('click', openPreview);
+$('btnPrint').addEventListener('click', printPDF);
+$('previewClose').addEventListener('click', closePreview);
+$('previewCloseBtn').addEventListener('click', closePreview);
+$('previewPrint').addEventListener('click', () => {
+  // Imprimer directement depuis l'iframe
+  try {
+    $('previewFrame').contentWindow.print();
+  } catch (e) {
+    // Fallback : ouvrir dans un nouvel onglet
+    printPDF();
+  }
+});
+$('previewSave').addEventListener('click', () => {
+  closePreview();
+  $('btnSaveFolder').click();
+});
+
+// Fermer la modale en cliquant en dehors
+$('previewModal').addEventListener('click', e => {
+  if (e.target.id === 'previewModal') closePreview();
+});
+
+// Échap pour fermer
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('previewModal').style.display === 'flex') closePreview();
+});
 
 </script>
 </body>
