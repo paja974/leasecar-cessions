@@ -199,6 +199,12 @@
     outline: none; border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-soft);
   }
+  .field input::placeholder {
+    color: #b8aa92;
+    font-style: italic;
+    font-weight: 400;
+    opacity: 0.8;
+  }
   .field input.filled { background: #f5fcf5; }
   .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .row-2 .field { margin-bottom: 0; }
@@ -568,6 +574,10 @@
     <div class="step" id="step3"><span class="num">3</span> Génération PDF</div>
   </div>
 
+  <div style="font-size:11.5px; color:var(--ink-soft); margin-bottom:10px; text-align:right;">
+    Champs marqués <span style="color:var(--bad); font-weight:700;">*</span> = obligatoires pour générer le Cerfa
+  </div>
+
   <div class="grid">
 
     <!-- ============ COLONNE 1 : VÉHICULE ============ -->
@@ -603,45 +613,45 @@
       <h3>Informations véhicule</h3>
 
       <div class="field">
-        <label>Immatriculation<span class="code">A</span></label>
-        <input type="text" id="immat" placeholder="AB-123-CD" style="text-transform:uppercase">
+        <label>Immatriculation <span style="color:var(--bad)">*</span><span class="code">A</span></label>
+        <input type="text" id="immat" placeholder="ex: AB-123-CD" style="text-transform:uppercase">
       </div>
 
       <div class="field">
-        <label>VIN<span class="code">E</span></label>
-        <input type="text" id="vin" placeholder="VF1RJB00..." style="text-transform:uppercase; font-family:monospace; font-size:13px">
+        <label>VIN <span style="color:var(--bad)">*</span><span class="code">E</span></label>
+        <input type="text" id="vin" placeholder="ex: VF1RJB00012345678" style="text-transform:uppercase; font-family:monospace; font-size:13px">
       </div>
 
       <div class="field">
-        <label>1<sup>re</sup> immat<span class="code">B</span></label>
+        <label>1<sup>re</sup> immat <span style="color:var(--bad)">*</span><span class="code">B</span></label>
         <input type="date" id="dateImmat">
       </div>
 
       <div class="row-2">
         <div class="field" style="grid-template-columns:1fr">
-          <label>Marque<span class="code">D.1</span></label>
-          <input type="text" id="marque" placeholder="RENAULT" style="text-transform:uppercase">
+          <label>Marque <span style="color:var(--bad)">*</span><span class="code">D.1</span></label>
+          <input type="text" id="marque" placeholder="ex: RENAULT" style="text-transform:uppercase">
         </div>
         <div class="field" style="grid-template-columns:1fr">
-          <label>Modèle<span class="code">D.3</span></label>
-          <input type="text" id="modele" placeholder="CLIO" style="text-transform:uppercase">
+          <label>Modèle <span style="color:var(--bad)">*</span><span class="code">D.3</span></label>
+          <input type="text" id="modele" placeholder="ex: CLIO" style="text-transform:uppercase">
         </div>
       </div>
 
       <div class="row-2">
         <div class="field" style="grid-template-columns:1fr">
           <label>Type/Variante<span class="code">D.2</span></label>
-          <input type="text" id="typeVar" placeholder="B0A">
+          <input type="text" id="typeVar" placeholder="ex: B0A">
         </div>
         <div class="field" style="grid-template-columns:1fr">
-          <label>Genre<span class="code">J.1</span></label>
-          <input type="text" id="genre" placeholder="VP" style="text-transform:uppercase">
+          <label>Genre <span style="color:var(--bad)">*</span><span class="code">J.1</span></label>
+          <input type="text" id="genre" placeholder="ex: VP" style="text-transform:uppercase">
         </div>
       </div>
 
       <div class="field">
-        <label>N° de formule</label>
-        <input type="text" id="numFormule" placeholder="2020AB12345 (format SIV)" style="text-transform:uppercase">
+        <label>N° de formule <span style="color:var(--bad)">*</span></label>
+        <input type="text" id="numFormule" placeholder="ex: 2020AB12345" style="text-transform:uppercase">
       </div>
 
       <h3>Cession</h3>
@@ -653,7 +663,7 @@
 
       <div class="row-2">
         <div class="field" style="grid-template-columns:1fr">
-          <label>Date cession</label>
+          <label>Date cession <span style="color:var(--bad)">*</span></label>
           <input type="date" id="dateCession">
         </div>
         <div class="field" style="grid-template-columns:1fr">
@@ -682,7 +692,7 @@
           </select>
         </div>
         <div class="field">
-          <label>Raison sociale</label>
+          <label>Raison sociale <span style="color:var(--bad)">*</span></label>
           <input type="text" id="bNom" placeholder="(auto)">
         </div>
         <div class="row-2">
@@ -691,27 +701,27 @@
             <input type="text" id="bSiren" placeholder="9 chiffres">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>N° voie</label>
+            <label>N° voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="bVoie">
           </div>
         </div>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>Type voie</label>
+            <label>Type voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="bTypeVoie" placeholder="RUE, AVENUE...">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Nom voie</label>
+            <label>Nom voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="bNomVoie">
           </div>
         </div>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>CP</label>
+            <label>CP <span style="color:var(--bad)">*</span></label>
             <input type="text" id="bCP">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Commune</label>
+            <label>Commune <span style="color:var(--bad)">*</span></label>
             <input type="text" id="bCommune">
           </div>
         </div>
@@ -722,7 +732,7 @@
         <p style="font-size:12px; color:var(--ink-soft); margin:0 0 4px;">Pré-rempli. Modifier si évolution.</p>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>Raison sociale</label>
+            <label>Raison sociale <span style="color:var(--bad)">*</span></label>
             <input type="text" id="lNom" value="LEASECAR">
           </div>
           <div class="field" style="grid-template-columns:1fr">
@@ -732,25 +742,25 @@
         </div>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>N° voie</label>
+            <label>N° voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="lVoie" value="103">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Type voie</label>
+            <label>Type voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="lTypeVoie" value="AVENUE">
           </div>
         </div>
         <div class="field">
-          <label>Nom voie</label>
+          <label>Nom voie <span style="color:var(--bad)">*</span></label>
           <input type="text" id="lNomVoie" value="JACQUES PREVERT">
         </div>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>CP</label>
+            <label>CP <span style="color:var(--bad)">*</span></label>
             <input type="text" id="lCP" value="97420">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Commune</label>
+            <label>Commune <span style="color:var(--bad)">*</span></label>
             <input type="text" id="lCommune" value="LE PORT">
           </div>
         </div>
@@ -760,14 +770,14 @@
         <legend>Acquéreur final (client du Cerfa 15776)</legend>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>Type</label>
+            <label>Type <span style="color:var(--bad)">*</span></label>
             <select id="cType">
               <option value="physique">Personne physique</option>
               <option value="moral">Personne morale</option>
             </select>
           </div>
           <div class="field" style="grid-template-columns:1fr" id="cSexeWrap">
-            <label>Sexe</label>
+            <label>Sexe <span style="color:var(--bad)">*</span></label>
             <select id="cSexe">
               <option value="M">M</option>
               <option value="F">F</option>
@@ -776,43 +786,43 @@
         </div>
         <div class="field">
           <label>Nom / Raison soc.</label>
-          <input type="text" id="cNom" placeholder="DUPONT JEAN ou SARL XYZ" style="text-transform:uppercase">
+          <input type="text" id="cNom" placeholder="ex: DUPONT JEAN  ou  SARL XYZ" style="text-transform:uppercase">
         </div>
         <div class="field" id="cSiretWrap" style="display:none">
-          <label>SIRET</label>
+          <label>SIRET <span style="color:var(--bad)">*</span></label>
           <input type="text" id="cSiret">
         </div>
         <div class="row-2" id="cNaissWrap">
           <div class="field" style="grid-template-columns:1fr">
-            <label>Date naissance</label>
+            <label>Date naissance <span style="color:var(--bad)">*</span></label>
             <input type="date" id="cDateN">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Lieu naissance</label>
+            <label>Lieu naissance <span style="color:var(--bad)">*</span></label>
             <input type="text" id="cLieuN" style="text-transform:uppercase">
           </div>
         </div>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>N° voie</label>
+            <label>N° voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="cVoie">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Type voie</label>
+            <label>Type voie <span style="color:var(--bad)">*</span></label>
             <input type="text" id="cTypeVoie">
           </div>
         </div>
         <div class="field">
-          <label>Nom voie</label>
+          <label>Nom voie <span style="color:var(--bad)">*</span></label>
           <input type="text" id="cNomVoie">
         </div>
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
-            <label>CP</label>
+            <label>CP <span style="color:var(--bad)">*</span></label>
             <input type="text" id="cCP">
           </div>
           <div class="field" style="grid-template-columns:1fr">
-            <label>Commune</label>
+            <label>Commune <span style="color:var(--bad)">*</span></label>
             <input type="text" id="cCommune">
           </div>
         </div>
@@ -1015,11 +1025,12 @@ function toggleClient() {
   // Adapter le label et placeholder du nom selon le type
   const cNomEl = $('cNom');
   const cNomLabel = cNomEl.closest('.field').querySelector('label');
+  const asterisk = ' *';
   if (isMoral) {
-    cNomLabel.textContent = 'Raison sociale';
+    cNomLabel.innerHTML = 'Raison sociale<span style="color:var(--bad)">' + asterisk + '</span>';
     cNomEl.placeholder = 'ex: SARL DUPONT, SCI MARTIN…';
   } else {
-    cNomLabel.textContent = 'Nom / Prénom';
+    cNomLabel.innerHTML = 'Nom / Prénom<span style="color:var(--bad)">' + asterisk + '</span>';
     cNomEl.placeholder = 'ex: DUPONT JEAN';
   }
 }
@@ -1785,33 +1796,64 @@ $('btnGenerate').addEventListener('click', async () => {
     return;
   }
 
-  // 2. Kilométrage obligatoire
-  if (!d.kilometrage || parseInt(d.kilometrage, 10) <= 0) {
-    alert('Le kilométrage est obligatoire pour générer le Cerfa.\nVeuillez saisir le kilométrage du véhicule.');
-    $('kilometrage').focus();
-    $('kilometrage').style.borderColor = 'var(--bad)';
-    setTimeout(() => { $('kilometrage').style.borderColor = ''; }, 3000);
-    return;
-  }
+  // 2. Vérifier tous les champs obligatoires en une fois
+  // Champs communs (véhicule)
+  const requis = [
+    { id: 'immat',       nom: 'Immatriculation' },
+    { id: 'vin',         nom: 'VIN' },
+    { id: 'dateImmat',   nom: 'Date 1re immatriculation' },
+    { id: 'marque',      nom: 'Marque (D.1)' },
+    { id: 'modele',      nom: 'Modèle (D.3)' },
+    { id: 'genre',       nom: 'Genre (J.1)' },
+    { id: 'numFormule',  nom: 'N° de formule' },
+    { id: 'kilometrage', nom: 'Kilométrage' },
+    { id: 'dateCession', nom: 'Date de cession' },
+  ];
 
-  // 3. Immat / VIN (warning soft seulement)
-  if (!d.immat || !d.vin) {
-    if (!confirm('Immatriculation ou VIN manquant. Continuer quand même ?')) return;
-  }
-
-  // 4. Selon le mode, vérifier les champs propres au mode
+  // Ajouter selon le mode
   if (currentMode === 'vente') {
-    if (!d.cNom) {
-      alert('Le nom de l\'acquéreur est obligatoire pour une vente.');
-      $('cNom').focus();
-      return;
+    requis.push(
+      { id: 'cNom',      nom: 'Nom / Raison sociale du client' },
+      { id: 'cVoie',     nom: 'N° de voie du client' },
+      { id: 'cTypeVoie', nom: 'Type de voie du client' },
+      { id: 'cNomVoie',  nom: 'Nom de la voie du client' },
+      { id: 'cCP',       nom: 'Code postal du client' },
+      { id: 'cCommune',  nom: 'Commune du client' }
+    );
+    // Champs spécifiques selon physique/moral
+    if (d.cType === 'physique') {
+      requis.push(
+        { id: 'cDateN',  nom: 'Date de naissance du client' },
+        { id: 'cLieuN',  nom: 'Lieu de naissance du client' }
+      );
+    } else {
+      requis.push({ id: 'cSiret', nom: 'SIRET du client (personne morale)' });
     }
   } else if (currentMode === 'achat') {
-    if (!d.bNom) {
-      alert('Le financeur est obligatoire pour un achat. Sélectionnez-le dans la liste.');
-      $('banqueSel').focus();
-      return;
+    requis.push({ id: 'bNom', nom: 'Financeur (à sélectionner dans la liste)' });
+  }
+
+  // Vérifier
+  const manquants = [];
+  for (const champ of requis) {
+    const val = d[champ.id];
+    if (!val || (champ.id === 'kilometrage' && parseInt(val, 10) <= 0)) {
+      manquants.push(champ.nom);
     }
+  }
+
+  if (manquants.length > 0) {
+    // Focus + bordure rouge sur le premier champ manquant
+    const premierVide = requis.find(c => !d[c.id] || (c.id === 'kilometrage' && parseInt(d[c.id], 10) <= 0));
+    if (premierVide && $(premierVide.id)) {
+      $(premierVide.id).focus();
+      $(premierVide.id).style.borderColor = 'var(--bad)';
+      setTimeout(() => { $(premierVide.id).style.borderColor = ''; }, 3000);
+    }
+    alert('Champs obligatoires manquants pour générer le Cerfa :\n\n• '
+          + manquants.join('\n• ')
+          + '\n\nMerci de compléter avant de générer.');
+    return;
   }
 
   const btn = $('btnGenerate');
