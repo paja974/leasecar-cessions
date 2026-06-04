@@ -1356,9 +1356,37 @@ function parseCG(text, options = {}) {
   const m1 = text.match(/\b([A-HJ-NP-TV-Z]{2}[-\s]?\d{3}[-\s]?[A-HJ-NP-TV-Z]{2})\b/);
   if (m1) setIfEmpty('immat', m1[1].toUpperCase().replace(/\s/g, '-'));
 
-  // VIN
-  const m2 = text.match(/\b([A-HJ-NPR-Z0-9]{17})\b/);
-  if (m2) setIfEmpty('vin', m2[1].toUpperCase());
+  // VIN — 17 caractères alphanumériques sans I, O, Q (norme ISO 3779)
+  // IMPORTANT : on cherche les VIN qui ne sont PAS précédés par une lettre seule
+  // (le label "E" de la carte grise est souvent collé au VIN par l'OCR :
+  //  "EVF7YAAPFA12V95755" au lieu de "E VF7YAAPFA12V95755")
+  // Stratégie : on cherche un VIN, si le 1er char est "E" suivi de chars valides
+  // de VIN, on essaie de prendre les 17 caractères suivants (en éliminant le E).
+  const vinRegex = /[A-HJ-NPR-Z0-9]{17}/g;
+  let vinFound = null;
+  const allVins = [...text.matchAll(vinRegex)].map(m => m[0]);
+  for (const candidate of allVins) {
+    // Si le candidat commence par "E" et qu'il existe un autre VIN de 17 chars
+    // dans le texte qui n'a pas ce préfixe, on préfère celui-là
+    if (candidate.startsWith('E')) {
+      // Chercher s'il y a une suite de 17 chars valides commençant à la position d'après "E"
+      const withoutE = candidate.substring(1);
+      // Chercher dans le texte si "E" + withoutE + un caractère valide existent
+      const idx = text.indexOf(candidate);
+      if (idx >= 0 && idx + 18 <= text.length) {
+        const next = text.charAt(idx + 17);
+        if (/[A-HJ-NPR-Z0-9]/.test(next)) {
+          // OCR a fusionné "E" + VIN-17 : on prend les 17 derniers caractères
+          vinFound = withoutE + next;
+          break;
+        }
+      }
+      // Sinon, on continue avec ce candidat (il commence vraiment par E)
+    }
+    vinFound = candidate;
+    break;
+  }
+  if (vinFound) setIfEmpty('vin', vinFound.toUpperCase());
 
   // 1re date (souvent date de 1re immat)
   const dates = [...text.matchAll(/\b(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})\b/g)];
@@ -1367,13 +1395,29 @@ function parseCG(text, options = {}) {
     setIfEmpty('dateImmat', `${y}-${m}-${d}`);
   }
 
-  const grab = (lbl, fid, maxLen=25) => {
-    const m = text.match(new RegExp(lbl + '\\s*[:.\\-]?\\s*([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '})', 'i'));
-    if (m) setIfEmpty(fid, m[1].trim().toUpperCase());
+  // grab() : capture le contenu d'un champ codé (D.1, D.2, D.3, J.1, etc.)
+  // Améliorations :
+  //  - s'arrête au prochain code de champ (lookahead négatif "D.x" / "J.x" / "F.x" / etc.)
+  //  - s'arrête sur 2 espaces consécutifs (séparateur visuel)
+  //  - capture moins agressive par défaut
+  const grab = (lbl, fid, maxLen=20) => {
+    // Pattern : label + ponctuation + valeur (qui s'arrête au prochain code ou 2+ espaces)
+    const pattern = lbl + '\\s*[:.\\-]?\\s*([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '}?)(?=\\s{2,}|\\s*[A-Z]\\.[0-9]|\\s*\\([A-Z]\\.|$)';
+    const m = text.match(new RegExp(pattern, 'i'));
+    if (m) {
+      let val = m[1].trim().toUpperCase();
+      // Nettoyage : retirer les éventuels parasites de fin
+      val = val.replace(/\s+[A-Z]\.?\s*$/, '');  // retire un "D." ou "E." en fin
+      setIfEmpty(fid, val);
+    }
   };
-  grab('D\\.?\\s*1', 'marque', 20);
-  grab('D\\.?\\s*3', 'modele', 25);
+  // D.1 Marque : limité à 1 mot principal (rarement composé, ex: MERCEDES-BENZ)
+  grab('D\\.?\\s*1', 'marque', 15);
+  // D.3 Modèle / dénomination commerciale : peut être plus long
+  grab('D\\.?\\s*3', 'modele', 20);
+  // D.2 Type variante version : code technique
   grab('D\\.?\\s*2', 'typeVar', 20);
+  // J.1 Genre national : code court (VP, CTTE, MTL...)
   grab('J\\.?\\s*1', 'genre', 5);
 
   // Fallback marques si D.1 non trouvé
@@ -1443,6 +1487,36 @@ async function tryLoad(name) {
     if (!r.ok) return null;
     return await r.arrayBuffer();
   } catch { return null; }
+}
+
+// Cache du tampon LEASECAR (chargé une seule fois)
+let _tamponBytes = null;
+async function loadTampon() {
+  if (_tamponBytes === null) {
+    _tamponBytes = await tryLoad('tampon_leasecar.png');
+  }
+  return _tamponBytes;
+}
+
+/* Dessine le tampon LEASECAR à la position (xTop, yTop) avec dimensions (w, h).
+   yTop est en convention y-depuis-le-haut (comme le reste du code).
+   Si le tampon n'est pas trouvé (fichier absent), ne fait rien silencieusement. */
+async function drawTampon(pdf, page, xTop, yTop, w, h) {
+  const bytes = await loadTampon();
+  if (!bytes) return;
+  try {
+    const img = await pdf.embedPng(bytes);
+    const pageH = page.getHeight();
+    page.drawImage(img, {
+      x: xTop,
+      y: pageH - yTop - h,
+      width: w,
+      height: h,
+      opacity: 0.85   // légère transparence pour effet "tampon encré"
+    });
+  } catch (e) {
+    console.warn('Tampon LEASECAR non intégré:', e);
+  }
 }
 
 // Factory qui crée les helpers drawAt/check liés à une police
@@ -1598,6 +1672,16 @@ async function fillCerfa15776(d) {
   setText('txt_LieuDéclaration2[0]', d.lieuCession);
   setText('txt_dateDéclaration[0]', dCess.full);
 
+  // ===== Tampon LEASECAR dans la zone "Signature de l'ancien propriétaire"
+  // (sur les 2 exemplaires, page 1 et page 2) =====
+  // "Signature de l'ancien propriétaire" est à y=501 sur les deux pages.
+  // Le label "Pour les sociétés..." est à y=512-522.
+  // On place le tampon en-dessous, dans la zone vide réservée.
+  for (let pi = 0; pi < Math.min(pdf.getPageCount(), 2); pi++) {
+    const page = pdf.getPage(pi);
+    await drawTampon(pdf, page, 405, 535, 175, 60);
+  }
+
   return await pdf.save();
 }
 
@@ -1714,59 +1798,73 @@ async function fillCerfa13751(d) {
   const form = pdf.getForm();
   const dCess = fmtDate(d.dateCession);
   const t = fmtTime(d.heureCession);
+  const dateCessionStr = `${dCess.j}${dCess.m}${dCess.a}`;   // format JJMMAAAA pour les champs date
 
-  const tryFill = (fragment, value) => {
-    if (!value) return;
-    const all = form.getFields();
-    const f = all.find(x => x.getName().toLowerCase().includes(fragment.toLowerCase()));
-    if (!f) return;
+  // Helpers : remplissage par NOM EXACT pour éviter les collisions de fragments
+  const prefix = 'topmostSubform[0].Page1[0]';
+
+  const setText = (shortName, value) => {
+    if (value === undefined || value === null || value === '') return;
     try {
-      if (typeof f.setText === 'function') f.setText(String(value));
-    } catch (e) { console.warn('Champ 13751', fragment, e.message); }
+      form.getTextField(`${prefix}.${shortName}`).setText(String(value));
+    } catch (e) { /* champ absent, on ignore silencieusement */ }
   };
 
   // ---- HAUT : ACQUÉREUR = LEASECAR ----
-  tryFill('Nom[0]',       d.lNom);
-  tryFill('NSIREN[0]',    d.lSiren);
-  tryFill('N_voie[0]',    d.lVoie);
-  tryFill('Nomvoie[0]',   d.lNomVoie);
-  tryFill('Codepostal[0]',d.lCP);
-  tryFill('Commune[0]',   d.lCommune);
+  setText('Nom[0]',         d.lNom);
+  setText('NSIREN[0]',      d.lSiren);
+  setText('N_voie[0]',      d.lVoie);
+  setText('Nomvoie[0]',     d.lNomVoie);
+  setText('Codepostal[0]',  d.lCP);
+  setText('Commune[0]',     d.lCommune);
 
   // Véhicule
-  tryFill('N_dimmatriculation', d.immat);
-  tryFill('N_didentification',  d.vin);
-  tryFill('Marque',             d.marque);
-  tryFill('Typeversion',        d.typeVar);
-  tryFill('Denominationcommerciale', d.modele);
-  tryFill('Genrenational',      d.genre);
-  tryFill('Data_jour_vente',    `${dCess.j}${dCess.m}${dCess.a}`);
-  tryFill('HEUREMINUTES',       `${t.h}${t.min}`);
-  tryFill('N_deformuleimmatriculation', d.numFormule);
-  tryFill('Fait_à[0]',          d.lieuCession);
-  tryFill('Data_signature',     `${dCess.j}${dCess.m}${dCess.a}`);
+  setText('N_dimmatriculation[0]', d.immat);
+  setText('N_didentification[0]',  d.vin);
+  setText('Marque[0]',             d.marque);
+  setText('Typeversion[0]',        d.typeVar);
+  setText('Denominationcommerciale[0]', d.modele);
+  setText('Genrenational[0]',      d.genre);
+  setText('N_deformuleimmatriculation[0]', d.numFormule);
 
-  // ---- BAS : VENDEUR = BANQUE ----
-  tryFill('Nom2',       d.bNom);
-  tryFill('NSIREN2',    d.bSiren);
-  tryFill('N_voie2',    d.bVoie);
-  tryFill('Nomvoie2',   d.bNomVoie);
-  tryFill('Codepostal2',d.bCP);
-  tryFill('Commune2',   d.bCommune);
-  tryFill('Data_VENTE', `${dCess.j}${dCess.m}${dCess.a}`);
-  tryFill('Fait_à_2',   d.lieuCession);
-  tryFill('Data_CERTIF',`${dCess.j}${dCess.m}${dCess.a}`);
+  // Date / heure de cession (= date où LEASECAR achète à la banque)
+  setText('Data_jour_vente[0]',  dateCessionStr);
+  setText('HEUREMINUTES[0]',     `${t.h}${t.min}`);
+  setText('Data_certif-vehi[0]', dateCessionStr);
 
-  // Cases à cocher : dessin direct par-dessus
+  setText('Fait_à[0]',          d.lieuCession);
+  setText('Data_signature[0]',  dateCessionStr);
+
+  // ---- BAS : VENDEUR = BANQUE / FINANCEUR ----
+  setText('Nom2[0]',        d.bNom);
+  setText('NSIREN2[0]',     d.bSiren);
+  setText('N_voie2[0]',     d.bVoie);
+  setText('Nomvoie2[0]',    d.bNomVoie);
+  setText('Codepostal2[0]', d.bCP);
+  setText('Commune2[0]',    d.bCommune);
+
+  // Date de vente (banque → LEASECAR) = date de cession (UNE SEULE date dans le workflow)
+  setText('Data_VENTE[0]',  dateCessionStr);   // date "vendu le ..."
+  setText('Fait_à_2[0]',    d.lieuCession);
+  setText('Data_CERTIF[0]', dateCessionStr);   // date "Fait à ..., le ..." (certif vente)
+
+  // ---- COCHES ----
+  // Note : pdf-lib ne sait pas distinguer les boutons radio de ce PDF
+  // (toutes les options portent le même nom "Oui"). On dessine donc directement
+  // un X aux positions EXACTES des cases (extraites des widgets du PDF source) :
+  //   Bouton_radio1 case '0' : x=92, y=83  → "professionnel du commerce de l'automobile"
+  //   Bouton_radio2 case '0' : x=88, y=189 → "acheté"
+  //   Bouton_radio3 case '0' : x=236, y=336 → "OUI"
   const p = pdf.getPage(0);
   const D = makeDrawer(p, fontR, fontB);
-  D.check(174, 89);   // "professionnel du commerce de l'automobile" (case carrée à gauche du label)
-  D.check(116, 167);  // "acheté" (case carrée devant le mot)
-  D.check(326, 271);  // "OUI" présence du certificat d'immatriculation
+  D.check(93, 92);    // professionnel automobile
+  D.check(89, 198);   // acheté
+  D.check(237, 345);  // OUI présence certificat
 
-  // Aplatir le formulaire pour éviter les modifications ultérieures
-  // (commenté car parfois trop agressif, l'utilisateur peut préférer un PDF éditable)
-  // form.flatten();
+  // Tampon LEASECAR dans la zone "Cachet et signature de l'acquéreur"
+  // L'encart est à droite, sous le label à y=439
+  // Largeur page = 595, l'encart va d'environ x=430 à x=585
+  await drawTampon(pdf, p, 430, 460, 150, 50);
 
   return await pdf.save();
 }
