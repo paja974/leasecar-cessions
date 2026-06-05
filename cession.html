@@ -1440,10 +1440,12 @@ function parseCG(text, options = {}) {
 
   // ===== Fallback MRZ (Machine Readable Zone) =====
   // La MRZ est la ligne en bas de la CG française avec le format :
-  //   Ligne 1 : CRFRA{IMMAT_7chars}1{VIN_17chars}...{date}{...}<{GENRE}<<<<
-  //   Ligne 2 : CI<<{MARQUE}<<<{MODELE}<<<{FORMULE}{checksum}
+  //   Ligne 1 : CRFRA{IMMAT_7}1{VIN_17}{8 chiffres}{GENRE_2-4}<<<<
+  //   Ligne 2 : CI<<{MARQUE}<<<{MODELE}<<<{FORMULE_11}{checksum}
   // Très utile quand l'OCR a galéré sur la zone principale en haut.
-  const mrz1 = text.match(/CRFRA?([A-Z0-9]{7,9})1([A-Z0-9]{17})/);
+
+  // Ligne 1 complète : immat + VIN + données + genre
+  const mrz1 = text.match(/CRFRA?([A-Z0-9]{7,9})1([A-Z0-9]{17})(\d{6,10})([A-Z]{2,4})<+/);
   if (mrz1) {
     // Reformater l'immat MRZ "HB382HL" → "HB-382-HL"
     let immatMRZ = mrz1[1].replace(/[<\s]/g, '');
@@ -1452,13 +1454,90 @@ function parseCG(text, options = {}) {
       setIfEmpty('immat', fmtImmat);
     }
     setIfEmpty('vin', mrz1[2]);
+    setIfEmpty('genre', mrz1[4]);   // genre national (VP, CTTE, M1, etc.)
+  } else {
+    // Fallback : si la regex stricte échoue, essayer plus permissive (immat + VIN seulement)
+    const mrz1Simple = text.match(/CRFRA?([A-Z0-9]{7,9})1([A-Z0-9]{17})/);
+    if (mrz1Simple) {
+      let immatMRZ = mrz1Simple[1].replace(/[<\s]/g, '');
+      if (immatMRZ.length >= 7) {
+        const fmtImmat = immatMRZ.slice(0, 2) + '-' + immatMRZ.slice(2, 5) + '-' + immatMRZ.slice(5, 7);
+        setIfEmpty('immat', fmtImmat);
+      }
+      setIfEmpty('vin', mrz1Simple[2]);
+    }
   }
+
   // Ligne 2 MRZ : CI<<MARQUE<<<<<<<<MODELE<<<<<<<<<<<<FORMULE
   const mrz2 = text.match(/CI<<([A-Z]+)<+([A-Z0-9]+)<+(20\d{2}[A-Z]{2}\d{5})/);
   if (mrz2) {
     setIfEmpty('marque', mrz2[1]);
     setIfEmpty('modele', mrz2[2]);
     setIfEmpty('numFormule', mrz2[3]);
+  }
+
+  // ===== Fallback D.2 (type variante version) =====
+  // D.2 n'apparaît ni dans la MRZ ni dans le coupon détachable, uniquement
+  // dans la zone principale en haut. Si le grab() précédent a échoué, on tente
+  // une regex plus permissive : séparateur OPTIONNEL (gère "D.2UPHNEK" sans espace).
+  // Le lookahead négatif (?!\.\d|\d) exclut D.2.1, D.21 etc.
+  if (!$('typeVar').value) {
+    const m = text.match(/D\.?\s*2(?!\.\d|\d)[\s\:\.\-]*([A-Z][A-Z0-9 \-\.]{2,20}?)(?=\s{2,}|\s+[A-Z]\.[0-9]|\s+\([A-Z]\.|$|\n)/i);
+    if (m) {
+      let val = m[1].trim().toUpperCase();
+      val = val.replace(/\s+[A-Z]\.?\s*$/, '');
+      setIfEmpty('typeVar', val);
+    }
+  }
+
+  // ===== Fallback genre national (J.1) =====
+  // Si ni la zone principale ni la MRZ n'ont fonctionné, on cherche dans le texte
+  // un des genres nationaux français standards.
+  // Liste officielle : https://www.service-public.fr/particuliers/vosdroits/F1689
+  if (!$('genre').value) {
+    const GENRES = [
+      'VP',    // Voiture particulière
+      'CTTE',  // Camionnette
+      'VU',    // Véhicule utilitaire
+      'CAM',   // Camion
+      'TCP',   // Transport en commun de personnes
+      'BUS',   // Autobus
+      'CAR',   // Autocar
+      'REM',   // Remorque
+      'SREM',  // Semi-remorque
+      'VASP',  // Véhicule automoteur spécialisé
+      'TRA',   // Tracteur agricole
+      'TRR',   // Tracteur routier
+      'MTL',   // Matériel de travaux publics
+      'MTT1',  // Moto légère
+      'MTT2',  // Motocyclette
+      'MTT',   // Motocyclette
+      'CYCL',  // Cyclomoteur
+      'CL',    // Cyclomoteur léger
+      'QM',    // Quadricycle à moteur
+      'TM',    // Tricycle à moteur
+      'M1',    // Catégorie EU voitures
+      'N1',    // Catégorie EU utilitaires légers
+      'N2', 'N3'
+    ];
+    // Trier par longueur décroissante pour matcher "MTT1" avant "MTT"
+    GENRES.sort((a, b) => b.length - a.length);
+    for (const g of GENRES) {
+      const re = new RegExp('\\b' + g + '\\b');
+      if (re.test(text)) {
+        setIfEmpty('genre', g);
+        break;
+      }
+    }
+  }
+
+  // Log de débogage : si certains champs manquent encore, affiche le texte OCR brut
+  // pour qu'on puisse diagnostiquer (ouvrir la console F12 du navigateur).
+  const missing = ['immat', 'vin', 'marque', 'modele', 'typeVar', 'genre', 'numFormule']
+    .filter(id => !$(id).value);
+  if (missing.length > 0) {
+    console.warn('[OCR] Champs non trouvés :', missing.join(', '));
+    console.warn('[OCR] Texte brut (extrait) :', text.substring(0, 2000));
   }
 
   // ===== Détection du titulaire (C.1) = financeur / propriétaire financier =====
