@@ -641,7 +641,7 @@
       <div class="row-2">
         <div class="field" style="grid-template-columns:1fr">
           <label>Type/Variante<span class="code">D.2</span></label>
-          <input type="text" id="typeVar" placeholder="ex: B0A">
+          <input type="text" id="typeVar" placeholder="ex: B0A" style="text-transform:uppercase">
         </div>
         <div class="field" style="grid-template-columns:1fr">
           <label>Genre <span style="color:var(--bad)">*</span><span class="code">J.1</span></label>
@@ -1356,34 +1356,34 @@ function parseCG(text, options = {}) {
   const m1 = text.match(/\b([A-HJ-NP-TV-Z]{2}[-\s]?\d{3}[-\s]?[A-HJ-NP-TV-Z]{2})\b/);
   if (m1) setIfEmpty('immat', m1[1].toUpperCase().replace(/\s/g, '-'));
 
-  // VIN — 17 caractères alphanumériques sans I, O, Q (norme ISO 3779)
-  // IMPORTANT : on cherche les VIN qui ne sont PAS précédés par une lettre seule
-  // (le label "E" de la carte grise est souvent collé au VIN par l'OCR :
-  //  "EVF7YAAPFA12V95755" au lieu de "E VF7YAAPFA12V95755")
-  // Stratégie : on cherche un VIN, si le 1er char est "E" suivi de chars valides
-  // de VIN, on essaie de prendre les 17 caractères suivants (en éliminant le E).
-  const vinRegex = /[A-HJ-NPR-Z0-9]{17}/g;
+  // VIN — 17 caractères alphanumériques
+  // Pièges courants à éviter :
+  //  1. La ligne MRZ en bas de la carte grise française commence par "CRFRA..." 
+  //     et contient une longue séquence alphanumérique. On l'exclut.
+  //  2. Le label "(E)" de la carte grise est souvent collé au VIN par l'OCR
+  //     "EVF7YAAPFA12V95755" au lieu de "E VF7YAAPFA12V95755"
+  //  3. Certains VIN contiennent O (PEUGEOT, RENAULT...) malgré la norme stricte.
+  //     On accepte donc tous les caractères majuscules + chiffres.
+  const vinRegex = /[A-Z0-9]{17}/g;
   let vinFound = null;
-  const allVins = [...text.matchAll(vinRegex)].map(m => m[0]);
-  for (const candidate of allVins) {
-    // Si le candidat commence par "E" et qu'il existe un autre VIN de 17 chars
-    // dans le texte qui n'a pas ce préfixe, on préfère celui-là
-    if (candidate.startsWith('E')) {
-      // Chercher s'il y a une suite de 17 chars valides commençant à la position d'après "E"
-      const withoutE = candidate.substring(1);
-      // Chercher dans le texte si "E" + withoutE + un caractère valide existent
-      const idx = text.indexOf(candidate);
-      if (idx >= 0 && idx + 18 <= text.length) {
-        const next = text.charAt(idx + 17);
-        if (/[A-HJ-NPR-Z0-9]/.test(next)) {
-          // OCR a fusionné "E" + VIN-17 : on prend les 17 derniers caractères
-          vinFound = withoutE + next;
-          break;
-        }
+  const allVins = [...text.matchAll(vinRegex)].map(m => ({ vin: m[0], idx: m.index }));
+
+  for (const cand of allVins) {
+    const v = cand.vin;
+    // 1. Ignorer la MRZ française qui commence par CRFRA
+    if (v.startsWith('CRFR') || v.startsWith('CRF')) continue;
+    // 2. Ignorer les séquences purement numériques (improbable VIN)
+    if (/^\d+$/.test(v)) continue;
+    // 3. Cas "E" préfixé : si on trouve un VIN qui commence par E suivi
+    //    d'un caractère valide à la position 18, on prend les 17 suivants
+    if (v.startsWith('E') && cand.idx + 18 <= text.length) {
+      const next = text.charAt(cand.idx + 17);
+      if (/[A-Z0-9]/.test(next)) {
+        vinFound = v.substring(1) + next;
+        break;
       }
-      // Sinon, on continue avec ce candidat (il commence vraiment par E)
     }
-    vinFound = candidate;
+    vinFound = v;
     break;
   }
   if (vinFound) setIfEmpty('vin', vinFound.toUpperCase());
@@ -1397,17 +1397,17 @@ function parseCG(text, options = {}) {
 
   // grab() : capture le contenu d'un champ codé (D.1, D.2, D.3, J.1, etc.)
   // Améliorations :
-  //  - s'arrête au prochain code de champ (lookahead négatif "D.x" / "J.x" / "F.x" / etc.)
-  //  - s'arrête sur 2 espaces consécutifs (séparateur visuel)
-  //  - capture moins agressive par défaut
+  //  - exige UN ESPACE après le code (donc "D.2 UPHNEK" matche, mais "D.2.1 ..." NON)
+  //    car le séparateur n'autorise plus le point
+  //  - s'arrête au prochain code de champ ou 2+ espaces
   const grab = (lbl, fid, maxLen=20) => {
-    // Pattern : label + ponctuation + valeur (qui s'arrête au prochain code ou 2+ espaces)
-    const pattern = lbl + '\\s*[:.\\-]?\\s*([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '}?)(?=\\s{2,}|\\s*[A-Z]\\.[0-9]|\\s*\\([A-Z]\\.|$)';
+    // Séparateur APRÈS le label : espace obligatoire (pas de point — sinon D.2 mangerait D.2.1)
+    const pattern = lbl + '\\s+([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '}?)(?=\\s{2,}|\\s+[A-Z]\\.[0-9]|\\s+\\([A-Z]\\.|$)';
     const m = text.match(new RegExp(pattern, 'i'));
     if (m) {
       let val = m[1].trim().toUpperCase();
       // Nettoyage : retirer les éventuels parasites de fin
-      val = val.replace(/\s+[A-Z]\.?\s*$/, '');  // retire un "D." ou "E." en fin
+      val = val.replace(/\s+[A-Z]\.?\s*$/, '');
       setIfEmpty(fid, val);
     }
   };
@@ -1415,7 +1415,7 @@ function parseCG(text, options = {}) {
   grab('D\\.?\\s*1', 'marque', 15);
   // D.3 Modèle / dénomination commerciale : peut être plus long
   grab('D\\.?\\s*3', 'modele', 20);
-  // D.2 Type variante version : code technique
+  // D.2 Type variante version : code technique (peut contenir des tirets)
   grab('D\\.?\\s*2', 'typeVar', 20);
   // J.1 Genre national : code court (VP, CTTE, MTL...)
   grab('J\\.?\\s*1', 'genre', 5);
@@ -1426,6 +1426,39 @@ function parseCG(text, options = {}) {
      'TOYOTA','NISSAN','OPEL','FORD','FIAT','HYUNDAI','KIA','SEAT','SKODA',
      'MAZDA','HONDA','MITSUBISHI','SUZUKI','TESLA','SMART','MINI']
     .forEach(m => { if (!$('marque').value && text.toUpperCase().includes(m)) setIfEmpty('marque', m); });
+  }
+
+  // ===== Numéro de formule du certificat (format SIV depuis 2009) =====
+  // Format : AAAA (année) + 2 lettres + 5 chiffres = 11 caractères
+  // Ex: 2025AD09011, 2020AB12345, 2023BP13664
+  // On le trouve toujours sur la CG : soit dans la zone principale, soit
+  // dans le coupon détachable en bas, soit dans la MRZ.
+  const formuleMatch = text.match(/\b(20\d{2}[A-Z]{2}\d{5})\b/);
+  if (formuleMatch) {
+    setIfEmpty('numFormule', formuleMatch[1]);
+  }
+
+  // ===== Fallback MRZ (Machine Readable Zone) =====
+  // La MRZ est la ligne en bas de la CG française avec le format :
+  //   Ligne 1 : CRFRA{IMMAT_7chars}1{VIN_17chars}...{date}{...}<{GENRE}<<<<
+  //   Ligne 2 : CI<<{MARQUE}<<<{MODELE}<<<{FORMULE}{checksum}
+  // Très utile quand l'OCR a galéré sur la zone principale en haut.
+  const mrz1 = text.match(/CRFRA?([A-Z0-9]{7,9})1([A-Z0-9]{17})/);
+  if (mrz1) {
+    // Reformater l'immat MRZ "HB382HL" → "HB-382-HL"
+    let immatMRZ = mrz1[1].replace(/[<\s]/g, '');
+    if (immatMRZ.length >= 7) {
+      const fmtImmat = immatMRZ.slice(0, 2) + '-' + immatMRZ.slice(2, 5) + '-' + immatMRZ.slice(5, 7);
+      setIfEmpty('immat', fmtImmat);
+    }
+    setIfEmpty('vin', mrz1[2]);
+  }
+  // Ligne 2 MRZ : CI<<MARQUE<<<<<<<<MODELE<<<<<<<<<<<<FORMULE
+  const mrz2 = text.match(/CI<<([A-Z]+)<+([A-Z0-9]+)<+(20\d{2}[A-Z]{2}\d{5})/);
+  if (mrz2) {
+    setIfEmpty('marque', mrz2[1]);
+    setIfEmpty('modele', mrz2[2]);
+    setIfEmpty('numFormule', mrz2[3]);
   }
 
   // ===== Détection du titulaire (C.1) = financeur / propriétaire financier =====
@@ -1954,6 +1987,25 @@ $('btnGenerate').addEventListener('click', async () => {
     return;
   }
 
+  // Validation du FORMAT du numéro de formule (au moins 8 caractères, lettres + chiffres)
+  // Format SIV nouveau : AAAA + 2 lettres + 5 chiffres = 11 chars (ex: 2025AD09011)
+  // On accepte aussi des variantes : tolérant mais on rejette des saisies bidon (ex: "zefezf")
+  if (d.numFormule) {
+    const f = d.numFormule.toUpperCase().replace(/\s/g, '');
+    const hasDigit = /\d/.test(f);
+    const hasLetter = /[A-Z]/.test(f);
+    if (f.length < 8 || !hasDigit || !hasLetter) {
+      $('numFormule').focus();
+      $('numFormule').style.borderColor = 'var(--bad)';
+      setTimeout(() => { $('numFormule').style.borderColor = ''; }, 3000);
+      alert('Format du N° de formule invalide.\n\n'
+          + 'Il doit contenir au moins 8 caractères, avec lettres ET chiffres.\n'
+          + 'Format typique : 2025AD09011 (4 chiffres année + 2 lettres + chiffres)\n\n'
+          + 'Le numéro figure sur le 1er volet du certificat d\'immatriculation.');
+      return;
+    }
+  }
+
   const btn = $('btnGenerate');
   btn.disabled = true;
   btn.textContent = 'Génération…';
@@ -2184,6 +2236,23 @@ initBanques();
 toggleClient();
 $('dateCession').value = new Date().toISOString().slice(0,10);
 // Pas de mode par défaut : l'utilisateur doit choisir explicitement
+
+// Forcer la conversion en MAJUSCULES à la saisie sur les champs qui le requièrent
+// (text-transform: uppercase n'affecte que l'affichage, pas la valeur du champ)
+const uppercaseFields = ['immat', 'vin', 'marque', 'modele', 'typeVar', 'genre',
+                         'numFormule', 'lTypeVoie', 'lNomVoie', 'lCommune',
+                         'cTypeVoie', 'cNomVoie', 'cCommune', 'cLieuN', 'cNom',
+                         'lieuCession'];
+uppercaseFields.forEach(id => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    const pos = el.selectionStart;   // mémoriser la position du curseur
+    el.value = el.value.toUpperCase();
+    try { el.setSelectionRange(pos, pos); } catch {}
+  });
+});
+
 /* ===== Aperçu / Imprimer ===== */
 function openPreview() {
   if (!lastGenerated.length) {
