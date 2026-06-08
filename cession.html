@@ -1346,204 +1346,252 @@ $('btnReocr').addEventListener('click', async () => {
 });
 
 function parseCG(text, options = {}) {
-  // Si onlyEmpty=true (2e passe ciblée), on ne remplit que les champs encore vides
+  // setIfEmpty : ne remplit JAMAIS un champ déjà rempli.
+  // Important : les sources les plus fiables (MRZ) sont appelées en PREMIER,
+  // donc une fois remplies, elles ne sont pas écrasées par des sources moins fiables.
   const setIfEmpty = (id, val) => {
-    if (options.onlyEmpty && $(id).value) return;
-    setVal(id, val);
+    if (!val) return;
+    if ($(id).value) return;   // déjà rempli, on ne touche pas
+    setVal(id, String(val).trim());
   };
 
-  // Immatriculation SIV
-  const m1 = text.match(/\b([A-HJ-NP-TV-Z]{2}[-\s]?\d{3}[-\s]?[A-HJ-NP-TV-Z]{2})\b/);
-  if (m1) setIfEmpty('immat', m1[1].toUpperCase().replace(/\s/g, '-'));
-
-  // VIN — 17 caractères alphanumériques
-  // Pièges courants à éviter :
-  //  1. La ligne MRZ en bas de la carte grise française commence par "CRFRA..." 
-  //     et contient une longue séquence alphanumérique. On l'exclut.
-  //  2. Le label "(E)" de la carte grise est souvent collé au VIN par l'OCR
-  //     "EVF7YAAPFA12V95755" au lieu de "E VF7YAAPFA12V95755"
-  //  3. Certains VIN contiennent O (PEUGEOT, RENAULT...) malgré la norme stricte.
-  //     On accepte donc tous les caractères majuscules + chiffres.
-  const vinRegex = /[A-Z0-9]{17}/g;
-  let vinFound = null;
-  const allVins = [...text.matchAll(vinRegex)].map(m => ({ vin: m[0], idx: m.index }));
-
-  for (const cand of allVins) {
-    const v = cand.vin;
-    // 1. Ignorer la MRZ française qui commence par CRFRA
-    if (v.startsWith('CRFR') || v.startsWith('CRF')) continue;
-    // 2. Ignorer les séquences purement numériques (improbable VIN)
-    if (/^\d+$/.test(v)) continue;
-    // 3. Cas "E" préfixé : si on trouve un VIN qui commence par E suivi
-    //    d'un caractère valide à la position 18, on prend les 17 suivants
-    if (v.startsWith('E') && cand.idx + 18 <= text.length) {
-      const next = text.charAt(cand.idx + 17);
-      if (/[A-Z0-9]/.test(next)) {
-        vinFound = v.substring(1) + next;
-        break;
-      }
+  // Correction OCR pour les modèles courts : si on a "2OB", "3OO8", "5OO8" etc.,
+  // on essaie de retrouver le vrai modèle parmi les modèles courants français.
+  // L'OCR confond souvent 0↔O, 8↔B, 1↔I, 5↔S.
+  const MODELES_FR = ['208','308','408','508','2008','3008','5008','108','107','206','307','407',
+                      'CLIO','MEGANE','CAPTUR','SCENIC','TWINGO','KADJAR','TALISMAN','ZOE',
+                      'C3','C4','C5','PICASSO','BERLINGO','JUMPER','JUMPY','BOXER','PARTNER',
+                      'YARIS','COROLLA','AURIS','RAV4','HILUX','LANDCRUISER',
+                      'POLO','GOLF','TIGUAN','TOURAN','PASSAT','UP'];
+  const fixModeleOCR = (m) => {
+    if (!m || m.length > 8) return m;
+    const u = m.toUpperCase();
+    if (MODELES_FR.includes(u)) return u;
+    const candidates = [
+      u.replace(/O/g,'0').replace(/B/g,'8'),
+      u.replace(/O/g,'0'),
+      u.replace(/B/g,'8'),
+      u.replace(/I/g,'1').replace(/S/g,'5'),
+      u.replace(/Z/g,'2'),
+    ];
+    for (const c of candidates) {
+      if (MODELES_FR.includes(c)) return c;
     }
-    vinFound = v;
-    break;
-  }
-  if (vinFound) setIfEmpty('vin', vinFound.toUpperCase());
+    return u;
+  };
 
-  // 1re date (souvent date de 1re immat)
+  // Correction OCR pour le genre national (court, 1-4 lettres)
+  const fixGenreOCR = (g) => {
+    if (!g) return g;
+    const u = g.toUpperCase();
+    const GENRES_OK = ['VP','VU','CTTE','BUS','CAR','CAM','REM','SREM','TCP','MTL',
+                       'MTT1','MTT2','MTT','CYCL','CL','QM','TM','TRA','TRR','VASP',
+                       'M1','N1','N2','N3'];
+    if (GENRES_OK.includes(u)) return u;
+    // Corrections OCR courantes
+    const candidates = [
+      u.replace(/0/g,'O'),
+      u.replace(/I/g,'1'),
+      u.replace(/M(\d)/g,'M$1'),  // M l → M1
+    ];
+    for (const c of candidates) {
+      if (GENRES_OK.includes(c)) return c;
+    }
+    return u;
+  };
+
+  // ----------------------------------------------------------------------
+  // STRATÉGIE : on attaque par les sources LES PLUS FIABLES en premier :
+  //   1. MRZ ligne 1 et 2 (format strict, très bien lu par OCR)
+  //   2. Coupon détachable (zone récap simple en bas)
+  //   3. Numéro de formule SIV (format défini, cherché partout)
+  //   4. Zone principale (codes A, B, C.1, D.1, etc. — la moins fiable)
+  //   5. Fallbacks par listes connues (genres nationaux, marques connues)
+  // ----------------------------------------------------------------------
+
+  // ========== 1. MRZ (Machine Readable Zone, lignes en bas de la CG) ==========
+  // Ligne 1 format strict : CRFRA{IMMAT_7}1{VIN_17}{8 chiffres}{GENRE_2-4}<<<<
+  //   ex: CRFRAHB382HL1VR3UPHNEOR513792482501109VP<<<<
+  // Ligne 2 format strict : CI<<{MARQUE}<+{MODELE}<+{FORMULE_11}{checksum}
+  //   ex: CI<<PEUGEOT<<<<<<<<208<<<<<<<<<<<<<2025AD0901114
+  //
+  // On tolère un peu de bruit OCR : CRFR au lieu de CRFRA, "I" lu comme "1", etc.
+
+  let mrzImmat = null, mrzVin = null;
+  // Le séparateur après l'immat est OBLIGATOIRE (le "1" entre immat et VIN dans la norme MRZ FR).
+  // On accepte 1, I ou L car l'OCR les confond souvent.
+  const mrz1 = text.match(/CRFRA?([A-Z0-9]{7})[1IL]([A-Z0-9]{17})(\d{6,10})([A-Z]{2,4})<+/);
+  if (mrz1) {
+    const immatRaw = mrz1[1];
+    mrzImmat = immatRaw.slice(0, 2) + '-' + immatRaw.slice(2, 5) + '-' + immatRaw.slice(5, 7);
+    mrzVin = mrz1[2];
+    setIfEmpty('immat', mrzImmat);
+    setIfEmpty('vin', mrzVin);
+    setIfEmpty('genre', mrz1[4]);
+  } else {
+    // Fallback : MRZ sans la fin (date + genre coupés par l'OCR)
+    const mrz1b = text.match(/CRFRA?([A-Z0-9]{7})[1IL]([A-Z0-9]{17})/);
+    if (mrz1b) {
+      const immatRaw = mrz1b[1];
+      mrzImmat = immatRaw.slice(0, 2) + '-' + immatRaw.slice(2, 5) + '-' + immatRaw.slice(5, 7);
+      mrzVin = mrz1b[2];
+      setIfEmpty('immat', mrzImmat);
+      setIfEmpty('vin', mrzVin);
+    }
+  }
+  const mrz2 = text.match(/CI<<([A-Z]+)<+([A-Z0-9]+)<+(20\d{2}[A-Z]{2}\d{5})/);
+  if (mrz2) {
+    setIfEmpty('marque', mrz2[1]);
+    setIfEmpty('modele', fixModeleOCR(mrz2[2]));
+    setIfEmpty('numFormule', mrz2[3]);
+  }
+
+  // ========== 2. Numéro de formule SIV (format AAAA + 2 lettres + 5 chiffres) ==========
+  // Ex: 2025AD09011, 2020AB12345 — on cherche partout dans le texte.
+  if (!$('numFormule').value) {
+    const f = text.match(/\b(20\d{2}[A-Z]{2}\d{5})\b/);
+    if (f) setIfEmpty('numFormule', f[1]);
+  }
+
+  // ========== 3. Zone principale (codes A, B, D.1, D.2, D.3, J.1) ==========
+
+  // Immatriculation SIV (format XX-DDD-XX), si pas trouvée via MRZ
+  if (!$('immat').value) {
+    const m = text.match(/\b([A-HJ-NP-TV-Z]{2}[-\s]?\d{3}[-\s]?[A-HJ-NP-TV-Z]{2})\b/);
+    if (m) setIfEmpty('immat', m[1].toUpperCase().replace(/\s/g, '-'));
+  }
+
+  // VIN : si pas trouvé via MRZ, chercher dans la zone HORS MRZ
+  // pour éviter le bug de chevauchement (la regex {17}/g sans correction
+  // capture des morceaux décalés après la MRZ).
+  if (!$('vin').value) {
+    // Masquer la zone MRZ pour éviter les faux positifs
+    let cleanText = text;
+    const mrzMatches = text.match(/CRFRA?[A-Z0-9]+(\d+)?[A-Z]*<+/g) || [];
+    for (const m of mrzMatches) {
+      cleanText = cleanText.replace(m, ' '.repeat(m.length));
+    }
+    // Aussi masquer la ligne 2 MRZ
+    cleanText = cleanText.replace(/CI<<[A-Z0-9<]+/g, m => ' '.repeat(m.length));
+
+    // Chercher le VIN (17 chars alphanumériques) dans le texte nettoyé
+    const candidates = [...cleanText.matchAll(/[A-Z0-9]{17}/g)].map(m => ({ vin: m[0], idx: m.index }));
+    for (const cand of candidates) {
+      const v = cand.vin;
+      if (/^\d+$/.test(v)) continue;                // tout chiffres = pas un VIN
+      if (v.startsWith('CRFR') || v.startsWith('CRF')) continue;
+      // Cas "E" préfixé par OCR ("EVF7..." au lieu de "E VF7...")
+      if (v.startsWith('E') && cand.idx + 18 <= cleanText.length) {
+        const next = cleanText.charAt(cand.idx + 17);
+        if (/[A-Z0-9]/.test(next)) {
+          setIfEmpty('vin', v.substring(1) + next);
+          break;
+        }
+      }
+      setIfEmpty('vin', v);
+      break;
+    }
+  }
+
+  // 1re date (format JJ/MM/AAAA ou JJ-MM-AAAA, généralement date 1re immat)
   const dates = [...text.matchAll(/\b(\d{2})[\/\.\-](\d{2})[\/\.\-](\d{4})\b/g)];
   if (dates.length) {
     const [, d, m, y] = dates[0];
     setIfEmpty('dateImmat', `${y}-${m}-${d}`);
   }
 
-  // grab() : capture le contenu d'un champ codé (D.1, D.2, D.3, J.1, etc.)
-  // Améliorations :
-  //  - exige UN ESPACE après le code (donc "D.2 UPHNEK" matche, mais "D.2.1 ..." NON)
-  //    car le séparateur n'autorise plus le point
-  //  - s'arrête au prochain code de champ ou 2+ espaces
-  const grab = (lbl, fid, maxLen=20) => {
-    // Séparateur APRÈS le label : espace obligatoire (pas de point — sinon D.2 mangerait D.2.1)
-    const pattern = lbl + '\\s+([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '}?)(?=\\s{2,}|\\s+[A-Z]\\.[0-9]|\\s+\\([A-Z]\\.|$)';
+  // ========== Codes D.1 / D.3 / J.1 / D.2 ==========
+  // grab() : capture après un label codé, en s'arrêtant au prochain code.
+  // Séparateur OBLIGATOIRE (espace) pour ne pas matcher D.2.1 quand on cherche D.2.
+  const grab = (lblPattern, fid, maxLen = 20, fixer = null) => {
+    const pattern = lblPattern + '\\s+([A-Z0-9][A-Z0-9 \\-\\.]{0,' + maxLen + '}?)(?=\\s{2,}|\\s+[A-Z]\\.[0-9]|\\s+\\([A-Z]\\.|$|\\n)';
     const m = text.match(new RegExp(pattern, 'i'));
     if (m) {
       let val = m[1].trim().toUpperCase();
-      // Nettoyage : retirer les éventuels parasites de fin
       val = val.replace(/\s+[A-Z]\.?\s*$/, '');
+      if (fixer) val = fixer(val);
       setIfEmpty(fid, val);
     }
   };
-  // D.1 Marque : limité à 1 mot principal (rarement composé, ex: MERCEDES-BENZ)
   grab('D\\.?\\s*1', 'marque', 15);
-  // D.3 Modèle / dénomination commerciale : peut être plus long
-  grab('D\\.?\\s*3', 'modele', 20);
-  // D.2 Type variante version : code technique (peut contenir des tirets)
-  grab('D\\.?\\s*2', 'typeVar', 20);
-  // J.1 Genre national : code court (VP, CTTE, MTL...)
-  grab('J\\.?\\s*1', 'genre', 5);
+  grab('D\\.?\\s*3', 'modele', 20, fixModeleOCR);
+  grab('J\\.?\\s*1', 'genre', 5, fixGenreOCR);
 
-  // Fallback marques si D.1 non trouvé
+  // D.2 : essais multiples (le plus difficile car format très variable :
+  //   "UPHNEK-K1T500" / "YAAPFA" / "B0A 5P" / "M10PGTVP216Y409"...)
+  if (!$('typeVar').value) {
+    // Essai 1 : grab standard
+    grab('D\\.?\\s*2', 'typeVar', 20);
+  }
+  if (!$('typeVar').value) {
+    // Essai 2 : séparateur OPTIONNEL (gère "D.2UPHNEK" collé sans espace)
+    // Le lookahead (?!\.\d|\d) bloque D.2.1 / D.21
+    const m = text.match(/D\.?\s*2(?!\.\d|\d)[\s\:\.\-]*([A-Z][A-Z0-9 \-\.]{2,20}?)(?=\s{2,}|\s+[A-Z]\.[0-9]|\s+\([A-Z]\.|$|\n)/i);
+    if (m) {
+      setIfEmpty('typeVar', m[1].trim().toUpperCase());
+    }
+  }
+  if (!$('typeVar').value) {
+    // Essai 3 : capturer la ligne entière après "D.2" jusqu'au newline
+    const m = text.match(/D\.?\s*2(?!\.\d|\d)[^A-Z0-9\n]*([A-Z][A-Z0-9 \-\.]{2,20})(?=\s*$|\s*\n)/im);
+    if (m) {
+      setIfEmpty('typeVar', m[1].trim().toUpperCase());
+    }
+  }
+  if (!$('typeVar').value) {
+    // Essai 4 : recherche ligne par ligne (au cas où D.2 et sa valeur sont sur 2 lignes différentes)
+    const lines = text.split(/\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (/D\s*[\.\s]?\s*2(?!\.\d|\d)/.test(lines[i])) {
+        const searchLine = lines[i] + ' ' + (lines[i + 1] || '');
+        const m = searchLine.match(/D\s*[\.\s]?\s*2(?!\.\d|\d)[^A-Z0-9]*([A-Z][A-Z0-9\-]{4,15})/i);
+        if (m) {
+          setIfEmpty('typeVar', m[1].trim().toUpperCase());
+          break;
+        }
+      }
+    }
+  }
+
+  // ========== 4. Fallback marques connues ==========
   if (!$('marque').value) {
     ['RENAULT','PEUGEOT','CITROEN','DACIA','VOLKSWAGEN','BMW','MERCEDES','AUDI',
      'TOYOTA','NISSAN','OPEL','FORD','FIAT','HYUNDAI','KIA','SEAT','SKODA',
-     'MAZDA','HONDA','MITSUBISHI','SUZUKI','TESLA','SMART','MINI']
-    .forEach(m => { if (!$('marque').value && text.toUpperCase().includes(m)) setIfEmpty('marque', m); });
+     'MAZDA','HONDA','MITSUBISHI','SUZUKI','TESLA','SMART','MINI','VOLVO','JEEP']
+    .forEach(m => {
+      if (!$('marque').value && text.toUpperCase().includes(m)) setIfEmpty('marque', m);
+    });
   }
 
-  // ===== Numéro de formule du certificat (format SIV depuis 2009) =====
-  // Format : AAAA (année) + 2 lettres + 5 chiffres = 11 caractères
-  // Ex: 2025AD09011, 2020AB12345, 2023BP13664
-  // On le trouve toujours sur la CG : soit dans la zone principale, soit
-  // dans le coupon détachable en bas, soit dans la MRZ.
-  const formuleMatch = text.match(/\b(20\d{2}[A-Z]{2}\d{5})\b/);
-  if (formuleMatch) {
-    setIfEmpty('numFormule', formuleMatch[1]);
-  }
-
-  // ===== Fallback MRZ (Machine Readable Zone) =====
-  // La MRZ est la ligne en bas de la CG française avec le format :
-  //   Ligne 1 : CRFRA{IMMAT_7}1{VIN_17}{8 chiffres}{GENRE_2-4}<<<<
-  //   Ligne 2 : CI<<{MARQUE}<<<{MODELE}<<<{FORMULE_11}{checksum}
-  // Très utile quand l'OCR a galéré sur la zone principale en haut.
-
-  // Ligne 1 complète : immat + VIN + données + genre
-  const mrz1 = text.match(/CRFRA?([A-Z0-9]{7,9})1([A-Z0-9]{17})(\d{6,10})([A-Z]{2,4})<+/);
-  if (mrz1) {
-    // Reformater l'immat MRZ "HB382HL" → "HB-382-HL"
-    let immatMRZ = mrz1[1].replace(/[<\s]/g, '');
-    if (immatMRZ.length >= 7) {
-      const fmtImmat = immatMRZ.slice(0, 2) + '-' + immatMRZ.slice(2, 5) + '-' + immatMRZ.slice(5, 7);
-      setIfEmpty('immat', fmtImmat);
-    }
-    setIfEmpty('vin', mrz1[2]);
-    setIfEmpty('genre', mrz1[4]);   // genre national (VP, CTTE, M1, etc.)
-  } else {
-    // Fallback : si la regex stricte échoue, essayer plus permissive (immat + VIN seulement)
-    const mrz1Simple = text.match(/CRFRA?([A-Z0-9]{7,9})1([A-Z0-9]{17})/);
-    if (mrz1Simple) {
-      let immatMRZ = mrz1Simple[1].replace(/[<\s]/g, '');
-      if (immatMRZ.length >= 7) {
-        const fmtImmat = immatMRZ.slice(0, 2) + '-' + immatMRZ.slice(2, 5) + '-' + immatMRZ.slice(5, 7);
-        setIfEmpty('immat', fmtImmat);
-      }
-      setIfEmpty('vin', mrz1Simple[2]);
-    }
-  }
-
-  // Ligne 2 MRZ : CI<<MARQUE<<<<<<<<MODELE<<<<<<<<<<<<FORMULE
-  const mrz2 = text.match(/CI<<([A-Z]+)<+([A-Z0-9]+)<+(20\d{2}[A-Z]{2}\d{5})/);
-  if (mrz2) {
-    setIfEmpty('marque', mrz2[1]);
-    setIfEmpty('modele', mrz2[2]);
-    setIfEmpty('numFormule', mrz2[3]);
-  }
-
-  // ===== Fallback D.2 (type variante version) =====
-  // D.2 n'apparaît ni dans la MRZ ni dans le coupon détachable, uniquement
-  // dans la zone principale en haut. Si le grab() précédent a échoué, on tente
-  // une regex plus permissive : séparateur OPTIONNEL (gère "D.2UPHNEK" sans espace).
-  // Le lookahead négatif (?!\.\d|\d) exclut D.2.1, D.21 etc.
-  if (!$('typeVar').value) {
-    const m = text.match(/D\.?\s*2(?!\.\d|\d)[\s\:\.\-]*([A-Z][A-Z0-9 \-\.]{2,20}?)(?=\s{2,}|\s+[A-Z]\.[0-9]|\s+\([A-Z]\.|$|\n)/i);
-    if (m) {
-      let val = m[1].trim().toUpperCase();
-      val = val.replace(/\s+[A-Z]\.?\s*$/, '');
-      setIfEmpty('typeVar', val);
-    }
-  }
-
-  // ===== Fallback genre national (J.1) =====
-  // Si ni la zone principale ni la MRZ n'ont fonctionné, on cherche dans le texte
-  // un des genres nationaux français standards.
-  // Liste officielle : https://www.service-public.fr/particuliers/vosdroits/F1689
+  // ========== 5. Fallback genre via liste de genres nationaux connus ==========
   if (!$('genre').value) {
-    const GENRES = [
-      'VP',    // Voiture particulière
-      'CTTE',  // Camionnette
-      'VU',    // Véhicule utilitaire
-      'CAM',   // Camion
-      'TCP',   // Transport en commun de personnes
-      'BUS',   // Autobus
-      'CAR',   // Autocar
-      'REM',   // Remorque
-      'SREM',  // Semi-remorque
-      'VASP',  // Véhicule automoteur spécialisé
-      'TRA',   // Tracteur agricole
-      'TRR',   // Tracteur routier
-      'MTL',   // Matériel de travaux publics
-      'MTT1',  // Moto légère
-      'MTT2',  // Motocyclette
-      'MTT',   // Motocyclette
-      'CYCL',  // Cyclomoteur
-      'CL',    // Cyclomoteur léger
-      'QM',    // Quadricycle à moteur
-      'TM',    // Tricycle à moteur
-      'M1',    // Catégorie EU voitures
-      'N1',    // Catégorie EU utilitaires légers
-      'N2', 'N3'
-    ];
-    // Trier par longueur décroissante pour matcher "MTT1" avant "MTT"
-    GENRES.sort((a, b) => b.length - a.length);
+    const GENRES = ['MTT1','MTT2','SREM','VASP','CTTE','BUS','CAR','CAM','REM',
+                    'CYCL','MTT','CL','QM','TM','MTL','TRA','TRR','TCP',
+                    'VP','VU','M1','N1','N2','N3'];
+    // Plus long d'abord pour que 'MTT1' ait priorité sur 'MTT'
     for (const g of GENRES) {
-      const re = new RegExp('\\b' + g + '\\b');
-      if (re.test(text)) {
+      if (new RegExp('\\b' + g + '\\b').test(text)) {
         setIfEmpty('genre', g);
         break;
       }
     }
   }
 
-  // Log de débogage : si certains champs manquent encore, affiche le texte OCR brut
-  // pour qu'on puisse diagnostiquer (ouvrir la console F12 du navigateur).
-  const missing = ['immat', 'vin', 'marque', 'modele', 'typeVar', 'genre', 'numFormule']
-    .filter(id => !$(id).value);
-  if (missing.length > 0) {
-    console.warn('[OCR] Champs non trouvés :', missing.join(', '));
-    console.warn('[OCR] Texte brut (extrait) :', text.substring(0, 2000));
+  // ========== DÉBOGAGE : afficher dans la console si des champs manquent ==========
+  const obligatoires = ['immat', 'vin', 'marque', 'modele', 'typeVar', 'genre', 'numFormule'];
+  const manquants = obligatoires.filter(id => !$(id).value);
+  if (manquants.length > 0) {
+    console.group('🔍 OCR — champs non détectés : ' + manquants.join(', '));
+    console.log('Texte OCR brut (premiers 3000 caractères) :');
+    console.log(text.substring(0, 3000));
+    console.log('---');
+    console.log('Si certains champs manquent toujours, complète-les manuellement.');
+    console.groupEnd();
+  } else {
+    console.log('✅ OCR — tous les champs obligatoires détectés');
   }
 
   // ===== Détection du titulaire (C.1) = financeur / propriétaire financier =====
-  // Sur une carte grise française, C.1 est le titulaire (souvent la banque/loueur),
-  // C.3 ou C.4a indique le locataire/utilisateur (ici LEASECAR).
-  // On cherche les noms des banques connues dans tout le texte OCR.
   detectFinanceur(text);
 }
 
