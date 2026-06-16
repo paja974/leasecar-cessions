@@ -768,6 +768,21 @@
 
       <fieldset id="clientFieldset">
         <legend>Acquéreur final (client du Cerfa 15776)</legend>
+
+        <!-- Option : ne pas remplir l'acquéreur, à compléter à la main sur le PDF -->
+        <div style="background:#fff8e6; border:1px solid #ffd470; border-radius:6px;
+                    padding:8px 12px; margin-bottom:12px; font-size:13px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;">
+            <input type="checkbox" id="cSkipFill" style="margin:0; width:16px; height:16px;">
+            <span>
+              <strong>Acquéreur à remplir manuellement</strong> sur le PDF imprimé
+              <span style="color:var(--ink-soft); font-weight:normal;">
+                (les champs ci-dessous deviennent optionnels)
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div class="row-2">
           <div class="field" style="grid-template-columns:1fr">
             <label>Type <span style="color:var(--bad)">*</span></label>
@@ -947,6 +962,15 @@ const BANQUES = [
     aliases: ['BPI', 'BPI FRANCE', 'BPIFRANCE']
   },
   // ↓ AJOUTER D'AUTRES FINANCEURS ICI SI BESOIN ↓
+  {
+    // Entrée spéciale : financeur "vide" — pour les anciens financeurs absents
+    // de la liste. Les champs restent vides et ne sont PAS rendus obligatoires.
+    // Le vendeur écrit le financeur à la main sur le PDF imprimé.
+    id: 'vide',
+    label: '— Vide (à remplir à la main) —',
+    nom: '', siren: '', voie: '', typevoie: '', nomvoie: '', cp: '', commune: '',
+    aliases: []
+  }
 ];
 
 // Coordonnées par défaut LEASECAR (pré-remplies dans le formulaire)
@@ -1003,6 +1027,16 @@ function initBanques() {
   sel.addEventListener('change', () => {
     const b = BANQUES.find(x => x.id === sel.value);
     if (!b) return;
+    // Cas spécial : financeur "vide" → on vide les champs au lieu de les remplir.
+    // Les vendeurs écriront le financeur à la main sur le PDF imprimé.
+    if (b.id === 'vide') {
+      ['bNom','bSiren','bVoie','bTypeVoie','bNomVoie','bCP','bCommune'].forEach(id => {
+        $(id).value = '';
+        $(id).classList.remove('filled');
+      });
+      if (currentMode === 'achat') markStep(3);
+      return;
+    }
     setVal('bNom', b.nom);
     setVal('bSiren', b.siren);
     setVal('bVoie', b.voie);
@@ -1801,36 +1835,41 @@ async function fillCerfa15776(d) {
   setText('num_DateDéclaration[0]', dCess.full);
 
   // ===== Nouveau propriétaire (CLIENT) =====
-  if (d.cType === 'physique') {
-    setRadio('Groupe_de_boutons_radio5[0]', '2');   // Personne physique
-    if (d.cSexe === 'M') {
-      setRadio('Groupe_de_boutons_radio6[0]', '1');
+  // Si la checkbox "Acquéreur à remplir manuellement" est cochée, on saute
+  // entièrement cette section (ni coches, ni texte) — le vendeur le fera à la main.
+  const skipClient = $('cSkipFill') && $('cSkipFill').checked;
+  if (!skipClient) {
+    if (d.cType === 'physique') {
+      setRadio('Groupe_de_boutons_radio5[0]', '2');   // Personne physique
+      if (d.cSexe === 'M') {
+        setRadio('Groupe_de_boutons_radio6[0]', '1');
+      } else {
+        setRadio('Groupe_de_boutons_radio6[0]', '2');
+      }
+      const dn = fmtDate(d.cDateN);
+      setText('num_DateNaissanceAcheteurJ[0]', dn.j);
+      setText('num_DateNaissanceAcheteurM[0]', dn.m);
+      setText('num_DateNaissanceAcheteurA[0]', dn.a);
+      setText('txt_LieuNaissanceAcheteur[0]', d.cLieuN);
     } else {
-      setRadio('Groupe_de_boutons_radio6[0]', '2');
+      setRadio('Groupe_de_boutons_radio5[0]', '1');   // Personne morale
+      setText('num_SiretAcheteur[0]', d.cSiret);
     }
-    const dn = fmtDate(d.cDateN);
-    setText('num_DateNaissanceAcheteurJ[0]', dn.j);
-    setText('num_DateNaissanceAcheteurM[0]', dn.m);
-    setText('num_DateNaissanceAcheteurA[0]', dn.a);
-    setText('txt_LieuNaissanceAcheteur[0]', d.cLieuN);
-  } else {
-    setRadio('Groupe_de_boutons_radio5[0]', '1');   // Personne morale
-    setText('num_SiretAcheteur[0]', d.cSiret);
+
+    setText('txt_IdentitéAcheteur[0]', d.cNom);
+    setText('num_VoieAdresseAcheteur[0]', d.cVoie);
+    setText('txt_TypeVoieAdresseAcheteur[0]', d.cTypeVoie);
+    setText('txt_NomVoieAdresseAcheteur[0]', d.cNomVoie);
+    setText('num_CodePostalAdresseAcheteur[0]', d.cCP);
+    setText('txt_CommuneAdresseAcheteur[0]', d.cCommune);
+
+    // Acquérir + Avoir été informé : cochées uniquement si l'acquéreur est rempli
+    setCheck('ckb_ValidationDéclarationA1[0]', true);
+    setCheck('ckb_ValidationDéclarationA2[0]', true);
+
+    setText('txt_LieuDéclaration2[0]', d.lieuCession);
+    setText('txt_dateDéclaration[0]', dCess.full);
   }
-
-  setText('txt_IdentitéAcheteur[0]', d.cNom);
-  setText('num_VoieAdresseAcheteur[0]', d.cVoie);
-  setText('txt_TypeVoieAdresseAcheteur[0]', d.cTypeVoie);
-  setText('txt_NomVoieAdresseAcheteur[0]', d.cNomVoie);
-  setText('num_CodePostalAdresseAcheteur[0]', d.cCP);
-  setText('txt_CommuneAdresseAcheteur[0]', d.cCommune);
-
-  // Acquérir + Avoir été informé
-  setCheck('ckb_ValidationDéclarationA1[0]', true);
-  setCheck('ckb_ValidationDéclarationA2[0]', true);
-
-  setText('txt_LieuDéclaration2[0]', d.lieuCession);
-  setText('txt_dateDéclaration[0]', dCess.full);
 
   // ===== Tampon LEASECAR dans la zone "Signature de l'ancien propriétaire"
   // (sur les 2 exemplaires, page 1 et page 2) =====
@@ -2070,25 +2109,40 @@ $('btnGenerate').addEventListener('click', async () => {
 
   // Ajouter selon le mode
   if (currentMode === 'vente') {
-    requis.push(
-      { id: 'cNom',      nom: 'Nom / Raison sociale du client' },
-      { id: 'cVoie',     nom: 'N° de voie du client' },
-      { id: 'cTypeVoie', nom: 'Type de voie du client' },
-      { id: 'cNomVoie',  nom: 'Nom de la voie du client' },
-      { id: 'cCP',       nom: 'Code postal du client' },
-      { id: 'cCommune',  nom: 'Commune du client' }
-    );
-    // Champs spécifiques selon physique/moral
-    if (d.cType === 'physique') {
+    // Si la checkbox "acquéreur à remplir manuellement" est cochée, on n'exige
+    // PAS les champs client (le vendeur les écrira à la main sur le PDF imprimé).
+    const skipClient = $('cSkipFill') && $('cSkipFill').checked;
+    if (!skipClient) {
       requis.push(
-        { id: 'cDateN',  nom: 'Date de naissance du client' },
-        { id: 'cLieuN',  nom: 'Lieu de naissance du client' }
+        { id: 'cNom',      nom: 'Nom / Raison sociale du client' },
+        { id: 'cVoie',     nom: 'N° de voie du client' },
+        { id: 'cTypeVoie', nom: 'Type de voie du client' },
+        { id: 'cNomVoie',  nom: 'Nom de la voie du client' },
+        { id: 'cCP',       nom: 'Code postal du client' },
+        { id: 'cCommune',  nom: 'Commune du client' }
       );
-    } else {
-      requis.push({ id: 'cSiret', nom: 'SIRET du client (personne morale)' });
+      // Champs spécifiques selon physique/moral
+      if (d.cType === 'physique') {
+        requis.push(
+          { id: 'cDateN',  nom: 'Date de naissance du client' },
+          { id: 'cLieuN',  nom: 'Lieu de naissance du client' }
+        );
+      } else {
+        requis.push({ id: 'cSiret', nom: 'SIRET du client (personne morale)' });
+      }
     }
   } else if (currentMode === 'achat') {
-    requis.push({ id: 'bNom', nom: 'Financeur (à sélectionner dans la liste)' });
+    // Si le financeur "vide" est sélectionné, on n'exige PAS les champs banque
+    // (le vendeur les écrira à la main sur le PDF imprimé).
+    const banqueId = $('banqueSel') ? $('banqueSel').value : '';
+    if (banqueId === 'vide') {
+      // Pas de validation des champs banque, mais on exige qu'une option soit
+      // sélectionnée (ce qui est le cas si banqueId === 'vide').
+    } else if (!banqueId) {
+      requis.push({ id: 'banqueSel', nom: 'Financeur (à sélectionner dans la liste)' });
+    } else {
+      requis.push({ id: 'bNom', nom: 'Nom du financeur' });
+    }
   }
 
   // Vérifier
@@ -2363,6 +2417,32 @@ initBanques();
 toggleClient();
 $('dateCession').value = new Date().toISOString().slice(0,10);
 // Pas de mode par défaut : l'utilisateur doit choisir explicitement
+
+/* Handler checkbox "Acquéreur à remplir manuellement"
+   Quand cochée : on grise visuellement le bloc client pour signaler qu'il est optionnel.
+   La validation skip ces champs et le PDF est généré avec ces champs vides. */
+function updateClientSkipState() {
+  const skip = $('cSkipFill').checked;
+  const clientFields = ['cType','cSexe','cNom','cSiret','cDateN','cLieuN',
+                        'cVoie','cTypeVoie','cNomVoie','cCP','cCommune'];
+  clientFields.forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.disabled = skip;
+    el.style.opacity = skip ? '0.45' : '';
+  });
+  // Griser aussi les labels pour effet visuel cohérent
+  const fieldset = $('clientFieldset');
+  if (fieldset) {
+    const labels = fieldset.querySelectorAll('label');
+    labels.forEach(l => {
+      if (l.querySelector('input[type=checkbox]')) return;  // pas la checkbox elle-même
+      l.style.opacity = skip ? '0.45' : '';
+    });
+  }
+}
+$('cSkipFill').addEventListener('change', updateClientSkipState);
+updateClientSkipState();
 
 // Forcer la conversion en MAJUSCULES à la saisie sur les champs qui le requièrent
 // (text-transform: uppercase n'affecte que l'affichage, pas la valeur du champ)
