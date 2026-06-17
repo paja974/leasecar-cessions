@@ -17,46 +17,69 @@
 
 <style>
   :root {
-    --bg: #f4f1ea;
-    --paper: #fffdf8;
-    --ink: #1a1a1a;
-    --ink-soft: #4a4a4a;
-    --line: #2a2a2a;
-    --line-soft: #d6d1c4;
-    --accent: #0a3d62;
-    --accent-soft: #d4e1ec;
-    --warn: #b8430c;
-    --ok: #2d6a4f;
-    --bad: #a30b0b;
+    /* === Charte LEASECAR === */
+    --brand-primary: #1A3A5C;       /* Bleu marine LEASECAR (couleur du tampon) */
+    --brand-primary-dark: #0E2A47;
+    --brand-primary-soft: #E8EEF5;
+    --brand-accent: #E65A2C;        /* Orange dynamique - accent énergique */
+    --brand-accent-soft: #FFEFE7;
+
+    /* === Neutres modernes === */
+    --bg: #F7F8FA;
+    --paper: #FFFFFF;
+    --ink: #1A2027;
+    --ink-soft: #5A6573;
+    --ink-muted: #8B95A1;
+    --line: var(--brand-primary);
+    --line-soft: #E1E5EB;
+
+    /* === États === */
+    --accent: var(--brand-primary);
+    --accent-soft: var(--brand-primary-soft);
+    --warn: #E65A2C;
+    --ok: #2D7A4D;
+    --bad: #C8233E;
   }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Source Serif Pro', Georgia, serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Roboto', 'Helvetica Neue', sans-serif;
     font-size: 14.5px;
-    line-height: 1.5;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
   }
   body {
-    background-image: repeating-linear-gradient(0deg, transparent 0, transparent 28px, #00000005 28px, #00000005 29px);
     min-height: 100vh;
   }
   header {
-    border-bottom: 2px solid var(--line);
-    padding: 16px 26px 12px;
+    border-bottom: 3px solid var(--brand-primary);
+    padding: 16px 26px 14px;
     background: var(--paper);
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 14px;
+    box-shadow: 0 1px 3px rgba(26,58,92,0.08);
+  }
+  header .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  header .brand-text h1 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.01em;
   }
   header h1 {
     margin: 0;
     font-size: 22px;
     font-weight: 600;
-    font-variant-caps: small-caps;
     letter-spacing: -0.01em;
   }
   header .sub {
@@ -531,12 +554,23 @@
 <body>
 
 <header>
-  <div>
-    <h1>Cessions Véhicules</h1>
-    <div class="sub">LEASECAR · La Réunion · Outil 10Positif</div>
+  <div class="brand">
+    <!-- Logo LEASECAR : typographie sans-serif bleu marine + point orange (accent de marque) -->
+    <svg width="170" height="36" viewBox="0 0 170 36" xmlns="http://www.w3.org/2000/svg" aria-label="LEASECAR">
+      <text x="0" y="26"
+            font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Arial, sans-serif"
+            font-size="26" font-weight="800"
+            fill="#1A3A5C" letter-spacing="0.5">LEASECAR</text>
+      <!-- Point accent orange après le "R" final, signature visuelle de marque -->
+      <circle cx="164" cy="26" r="3.5" fill="#E65A2C"/>
+    </svg>
+    <div class="brand-text">
+      <h1>Cessions Véhicules</h1>
+      <div class="sub">La Réunion · Outil 10Positif</div>
+    </div>
   </div>
   <div class="meta">
-    Cerfa 13751 + 15776 + 13754<br>
+    Cerfa 13751 + 15776<br>
     100% local · données non transmises
   </div>
 </header>
@@ -1473,18 +1507,77 @@ function parseCG(text, options = {}) {
       setIfEmpty('vin', mrzVin);
     }
   }
-  const mrz2 = text.match(/CI<<([A-Z]+)<+([A-Z0-9]+)<+(20\d{2}[A-Z]{2}\d{5})/);
+  // Ligne 2 MRZ : préfixe variable selon les versions de CG (CI<<, FG<T, etc.)
+  // Le préfixe officiel fait toujours 4 caractères. Cela évite que le préfixe
+  // "mange" la 1re lettre de la marque (sinon "FG<TPEUGEOT" donne "EUGEOT").
+  // Le numéro de formule à la fin peut avoir 2-3 chars de checksum supplémentaires.
+  const mrz2 = text.match(/[A-Z<]{4}([A-Z]{3,15})<+([A-Z0-9]+)<+(20\d{2}[A-Z]{2}\d{5})\d{0,3}/);
   if (mrz2) {
-    setIfEmpty('marque', mrz2[1]);
+    // Vérif basique : la "marque" extraite doit ressembler à un mot (3+ lettres consécutives)
+    if (/^[A-Z]{3,}$/.test(mrz2[1])) {
+      setIfEmpty('marque', mrz2[1]);
+    }
     setIfEmpty('modele', fixModeleOCR(mrz2[2]));
     setIfEmpty('numFormule', mrz2[3]);
   }
 
   // ========== 2. Numéro de formule SIV (format AAAA + 2 lettres + 5 chiffres) ==========
   // Ex: 2025AD09011, 2020AB12345 — on cherche partout dans le texte.
+  // L'OCR confond souvent : 0↔O, 1↔I↔l, 5↔S, 8↔B
+  // On fait plusieurs essais du plus strict au plus tolérant, puis on nettoie le résultat.
   if (!$('numFormule').value) {
-    const f = text.match(/\b(20\d{2}[A-Z]{2}\d{5})\b/);
-    if (f) setIfEmpty('numFormule', f[1]);
+    const findFormule = (txt) => {
+      // Essai 1 : format strict 11 chars (le plus courant)
+      let m = txt.match(/\b(20\d{2}[A-Z]{2}\d{5})\b/);
+      if (m) return m[1];
+
+      // Essai 2 : tolérer des espaces dans le numéro (Tesseract en insère parfois)
+      m = txt.match(/\b(20\d{2})\s*([A-Z]{2})\s*(\d{5})\b/);
+      if (m) return m[1] + m[2] + m[3];
+
+      // Essai 3 : tolérer O au lieu de 0 ET I/l au lieu de 1 ET S au lieu de 5
+      //   Position 1 : "2" (parfois lu "Z")
+      //   Position 2 : "0" (parfois lu "O" ou "Q")
+      //   Positions 3-4 : chiffres (parfois lus comme O, I, l, S)
+      //   Positions 5-6 : lettres (parfois lues comme 0, 1, 5)
+      //   Positions 7-11 : 5 chiffres (parfois lus comme O, I, l, S, B)
+      m = txt.match(/\b([2Zz])([O0Qq])([\dOIlSsB]{2})\s*([A-Z][A-Z0-9])\s*([\dOIlSsB]{5})\b/);
+      if (m) {
+        let raw = m[1] + m[2] + m[3] + m[4] + m[5];
+        // Nettoyer : remplacer les confusions OCR par les chiffres corrects
+        // Les positions 1-4 et 7-11 doivent être des chiffres
+        const fixDigits = (s) => s.replace(/[OoQq]/g, '0').replace(/[Iil]/g, '1').replace(/[Ss]/g, '5').replace(/B/g, '8');
+        // On retravaille char par char selon la position
+        const year = '2' + '0' + fixDigits(m[3]);
+        const letters = m[4].toUpperCase();
+        const digits = fixDigits(m[5]);
+        return year + letters + digits;
+      }
+
+      // Essai 4 : pattern plus permissif (10-12 chars commençant par 20)
+      m = txt.match(/\b(20\d{2}[A-Z]{2}[\dOIlS]{4,6})\b/);
+      if (m) {
+        let val = m[1];
+        // Nettoyer les chiffres
+        val = val.substring(0, 4) + val.substring(4, 6) + val.substring(6).replace(/[OoQq]/g, '0').replace(/[Iil]/g, '1').replace(/[Ss]/g, '5').replace(/B/g, '8');
+        return val.substring(0, 11);  // tronquer à 11 chars exact
+      }
+
+      // Essai 5 : chercher après le mot "formule" dans le texte
+      m = txt.match(/formule[^A-Z0-9]*([A-Z0-9\s]{8,15})/i);
+      if (m) {
+        const clean = m[1].replace(/\s/g, '').substring(0, 11);
+        // Vérifier que ça ressemble au format
+        if (/^[2Zz][O0Qq]\d{2}[A-Z]{2}\d{5}$/.test(clean) || /^20\d{2}[A-Z]{2}\d{5}$/.test(clean)) {
+          return clean.replace(/[OoQq]/g, '0').replace(/^Z/, '2');
+        }
+      }
+
+      return null;
+    };
+
+    const formule = findFormule(text);
+    if (formule) setIfEmpty('numFormule', formule);
   }
 
   // ========== 3. Zone principale (codes A, B, D.1, D.2, D.3, J.1) ==========
@@ -1595,6 +1688,20 @@ function parseCG(text, options = {}) {
     .forEach(m => {
       if (!$('marque').value && text.toUpperCase().includes(m)) setIfEmpty('marque', m);
     });
+  }
+
+  // ========== 4 bis. Fallback modèles connus ==========
+  // Si le modèle n'a pas été trouvé via D.3 ni via la MRZ, on cherche un modèle
+  // français connu dans tout le texte. Tri par longueur décroissante pour matcher
+  // "3008" avant "300", "BERLINGO" avant "BERLIN", etc.
+  if (!$('modele').value) {
+    const MODELES_LOOKUP = [...MODELES_FR].sort((a, b) => b.length - a.length);
+    for (const m of MODELES_LOOKUP) {
+      if (new RegExp('\\b' + m + '\\b').test(text.toUpperCase())) {
+        setIfEmpty('modele', m);
+        break;
+      }
+    }
   }
 
   // ========== 5. Fallback genre via liste de genres nationaux connus ==========
@@ -1884,103 +1991,6 @@ async function fillCerfa15776(d) {
   return await pdf.save();
 }
 
-/* ============================================================
-   CERFA 13754 — Archive (LEASECAR → CLIENT, ancien format)
-   ============================================================ */
-async function fillCerfa13754(d) {
-  const buf = await tryLoad('cerfa_13754.pdf');
-  if (!buf) return null;
-  const pdf = await PDFDocument.load(buf);
-
-  const fontR = await pdf.embedFont(StandardFonts.Helvetica);
-  const fontB = await pdf.embedFont(StandardFonts.HelveticaBold);
-
-  const dCess = fmtDate(d.dateCession);
-  const dImmat = fmtDate(d.dateImmat);
-  const t = fmtTime(d.heureCession);
-
-  // 3 pages identiques (acquéreur, préfecture, vendeur)
-  for (let pageIdx = 0; pageIdx < pdf.getPageCount(); pageIdx++) {
-    const p = pdf.getPage(pageIdx);
-    const D = makeDrawer(p, fontR, fontB);
-
-    // === LEASECAR (ancien propriétaire) - haut ===
-    D.put(110, 95, d.lNom);
-    D.put(510, 95, d.lSiren);
-    D.put(60,  120, d.lVoie);
-    D.put(160, 120, d.lTypeVoie);
-    D.put(270, 120, d.lNomVoie);
-    D.put(50,  138, d.lCP);
-    D.put(215, 138, d.lCommune);
-
-    // déclare avoir cédé
-    D.check(122, 153);
-    // date + heure cession
-    D.put(240, 175, dCess.j);
-    D.put(290, 175, dCess.m);
-    D.put(340, 175, dCess.a);
-    D.put(425, 175, t.h);
-    D.put(465, 175, t.min);
-
-    // véhicule
-    D.put(65,  188, d.immat);
-    D.put(270, 188, d.vin);
-    D.put(450, 188, dImmat.full);
-    D.put(100, 218, d.marque);
-    D.put(360, 218, d.typeVar);
-    D.put(50,  242, d.genre);
-    D.put(205, 242, d.modele);
-
-    // === Client (nouveau propriétaire) ===
-    D.put(50,  262, d.cNom);
-    D.put(510, 262, d.cSiret);
-    if (d.cType === 'physique') {
-      const dn = fmtDate(d.cDateN);
-      D.put(70,  285, dn.j);
-      D.put(110, 285, dn.m);
-      D.put(160, 285, dn.a);
-      D.put(260, 285, d.cLieuN);
-      D.check(224, 307);
-      if (d.cSexe === 'M') D.check(296, 307);
-      else D.check(320, 307);
-    } else {
-      D.check(422, 307);
-    }
-    D.put(60,  338, d.cVoie);
-    D.put(160, 338, d.cTypeVoie);
-    D.put(270, 338, d.cNomVoie);
-    D.put(50,  370, d.cCP);
-    D.put(210, 370, d.cCommune);
-    D.put(470, 370, 'FRANCE');
-
-    // OUI présence certificat + numéro de formule
-    D.check(313, 386);
-    D.put(420, 393, d.numFormule);
-
-    D.put(60, 458, d.lieuCession);
-    D.put(290, 458, dCess.j);
-    D.put(330, 458, dCess.m);
-    D.put(370, 458, dCess.a);
-
-    // === Certificat de vente (bas) ===
-    D.put(110, 558, d.lNom);
-    D.put(510, 558, d.lSiren);
-    D.put(60,  584, d.lVoie);
-    D.put(160, 584, d.lTypeVoie);
-    D.put(270, 584, d.lNomVoie);
-    D.put(50,  618, d.lCP);
-    D.put(215, 618, d.lCommune);
-    D.put(555, 643, dCess.j);
-    D.put(600, 643, dCess.m);
-    D.put(650, 643, dCess.a);
-    D.check(144, 661);
-    D.put(165, 683, (d.kilometrage || '') + ' km');
-    D.put(230, 754, d.lieuCession);
-    D.put(415, 754, dCess.full);
-  }
-
-  return await pdf.save();
-}
 
 /* ============================================================
    CERFA 13751 — Déclaration d'achat BANQUE → LEASECAR
@@ -2073,7 +2083,7 @@ async function fillCerfa13751(d) {
    =========================================================================== */
 
 // Détection du support de l'API File System Access (Chrome/Edge desktop)
-const HAS_FS_ACCESS = typeof window.showDirectoryPicker === 'function';
+const HAS_FS_ACCESS = typeof window.showSaveFilePicker === 'function';
 
 // Stockage des derniers PDF générés (bytes + noms) pour réutilisation
 let lastGenerated = [];   // [{ name, bytes, blobUrl }, ...]
@@ -2254,10 +2264,12 @@ $('btnGenerate').addEventListener('click', async () => {
   }
 });
 
-/* ---------- Enregistrer dans un dossier choisi (File System Access API) ---------- */
+/* ---------- Enregistrer le PDF (File System Access API) ---------- */
+// Utilise showSaveFilePicker pour une fenêtre "Enregistrer sous..." classique
+// avec nom de fichier pré-rempli. UX familière à tous les utilisateurs.
 $('btnSaveFolder').addEventListener('click', async () => {
   if (!HAS_FS_ACCESS) {
-    alert('Votre navigateur ne permet pas le choix d\'un dossier.\n' +
+    alert('Votre navigateur ne permet pas le choix d\'un emplacement.\n' +
           'Utiliser les liens de téléchargement individuels en dessous, ' +
           'ou ouvrir cette page avec Chrome / Edge.');
     return;
@@ -2271,51 +2283,48 @@ $('btnSaveFolder').addEventListener('click', async () => {
   const hint = $('dlHint');
 
   try {
-    // Suggestion d'un nom de dossier basé sur le contexte : PLAQUE_NOMCLIENT
+    // Construction du nom de fichier suggéré : MODE_PLAQUE_NOMCLIENT.pdf
+    // (ex : Vente_GN-856-JM_DUPONT.pdf ou Achat_HB-382-HL.pdf)
     const d = getAll();
     const safeImmat = (d.immat || 'VEHICULE').replace(/[^A-Z0-9-]/gi, '').toUpperCase();
-    // Nom client : on prend le premier mot (= nom de famille pour personne physique,
-    // ou début de raison sociale pour personne morale)
     const clientRaw = (d.cNom || '').toUpperCase().trim();
     const safeClient = clientRaw
       .replace(/[^A-Z0-9 -]/g, '')
       .trim()
-      .split(/\s+/)[0]   // garder uniquement le premier mot
+      .split(/\s+/)[0]   // premier mot
       .slice(0, 30);
 
-    // Demander à l'utilisateur de choisir un dossier parent
-    const dirHandle = await window.showDirectoryPicker({
-      mode: 'readwrite',
-      startIn: 'documents',
-      id: 'leasecar-cessions'  // mémorise le dernier emplacement choisi
-    });
+    let savedCount = 0;
 
-    btn.disabled = true;
-    btn.textContent = 'Enregistrement…';
-
-    // Créer le sous-dossier PLAQUE_NOMCLIENT (ex : GN-856-JM_DUPONT)
-    const subdirName = safeClient
-      ? `${safeImmat}_${safeClient}`
-      : safeImmat;
-    let targetDir;
-    try {
-      targetDir = await dirHandle.getDirectoryHandle(subdirName, { create: true });
-    } catch {
-      // Si on ne peut pas créer le sous-dossier (rare), tomber sur le dossier parent
-      targetDir = dirHandle;
-    }
-
-    // Écrire chaque PDF
+    // Enregistrer chaque PDF généré, un par un, avec une fenêtre "Enregistrer sous..."
     for (const f of lastGenerated) {
-      const fh = await targetDir.getFileHandle(f.name, { create: true });
-      const writable = await fh.createWritable();
+      // Nom suggéré : on enlève l'extension du nom d'origine + on ajoute plaque + client
+      const baseName = f.name.replace(/\.pdf$/i, '');
+      const suggestedName = safeClient
+        ? `${baseName}_${safeImmat}_${safeClient}.pdf`
+        : `${baseName}_${safeImmat}.pdf`;
+
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement…';
+
+      const handle = await window.showSaveFilePicker({
+        suggestedName: suggestedName,
+        startIn: 'documents',
+        id: 'leasecar-cessions',   // mémorise le dernier emplacement utilisé
+        types: [{
+          description: 'Document PDF',
+          accept: { 'application/pdf': ['.pdf'] }
+        }]
+      });
+
+      const writable = await handle.createWritable();
       await writable.write(f.bytes);
       await writable.close();
+      savedCount++;
     }
 
     hint.className = 'dl-hint';
-    hint.innerHTML = '<span style="color:var(--ok); font-weight:600">✓ Enregistré dans ' +
-                     dirHandle.name + '/' + subdirName + '/</span>';
+    hint.innerHTML = `<span style="color:var(--ok); font-weight:600">✓ ${savedCount} fichier(s) enregistré(s)</span>`;
   } catch (err) {
     if (err.name === 'AbortError') {
       // L'utilisateur a annulé, pas grave
@@ -2326,7 +2335,7 @@ $('btnSaveFolder').addEventListener('click', async () => {
     hint.textContent = '✗ ' + err.message;
   } finally {
     btn.disabled = false;
-    btn.textContent = '📁 Enregistrer dans un dossier…';
+    btn.textContent = '📁 Enregistrer sous…';
   }
 });
 
