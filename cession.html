@@ -493,10 +493,15 @@
     color: var(--ink-soft);
   }
   /* Affichage conditionnel des labels d'étape */
-  body.mode-vente .step-label-achat { display: none; }
-  body.mode-achat .step-label-vente { display: none; }
-  body:not(.mode-vente):not(.mode-achat) .step-label-vente,
-  body:not(.mode-vente):not(.mode-achat) .step-label-achat { display: none; }
+  body.mode-vente_part .step-label-achat,
+  body.mode-vente_part .step-label-vente_pro { display: none; }
+  body.mode-vente_pro .step-label-achat,
+  body.mode-vente_pro .step-label-vente_part { display: none; }
+  body.mode-achat .step-label-vente_part,
+  body.mode-achat .step-label-vente_pro { display: none; }
+  body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) .step-label-vente_part,
+  body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) .step-label-vente_pro,
+  body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) .step-label-achat { display: none; }
   body:not(.mode-vente):not(.mode-achat) #step2::after { content: ' Étape 2'; color: var(--ink-soft); font-size: 11px; }
   /* Affichage conditionnel des sections */
   body.mode-vente #banqueFieldset,
@@ -607,25 +612,37 @@
 
   <div class="mode-selector">
     <div class="mode-label">Type d'opération :</div>
-    <button type="button" class="mode-btn" data-mode="vente" id="modeVente">
+    <button type="button" class="mode-btn" data-mode="vente_part" id="modeVentePart">
       <span class="mode-icon">→</span>
       <span class="mode-text">
-        <strong>VENTE</strong>
-        <small>LEASECAR vend à un client final</small>
+        <strong>VENTE PARTICULIER</strong>
+        <small>LEASECAR vend à un particulier — 15776</small>
+      </span>
+    </button>
+    <button type="button" class="mode-btn" data-mode="vente_pro" id="modeVentePro">
+      <span class="mode-icon">→</span>
+      <span class="mode-text">
+        <strong>VENTE PRO</strong>
+        <small>LEASECAR vend à un pro — 13751 + 15776</small>
       </span>
     </button>
     <button type="button" class="mode-btn" data-mode="achat" id="modeAchat">
       <span class="mode-icon">←</span>
       <span class="mode-text">
         <strong>ACHAT</strong>
-        <small>LEASECAR rachète à un financeur</small>
+        <small>Financeur vend à LEASECAR — 13751 + 15776</small>
       </span>
     </button>
   </div>
 
   <div class="steps" id="stepsContainer">
     <div class="step active" id="step1"><span class="num">1</span> Carte grise (OCR)</div>
-    <div class="step" id="step2"><span class="num">2</span><span class="step-label-vente">Acquéreur final</span><span class="step-label-achat">Financeur (vendeur)</span></div>
+    <div class="step" id="step2">
+      <span class="num">2</span>
+      <span class="step-label-vente_part">Acquéreur (particulier)</span>
+      <span class="step-label-vente_pro">Acquéreur (pro)</span>
+      <span class="step-label-achat">Financeur (vendeur)</span>
+    </div>
     <div class="step" id="step3"><span class="num">3</span> Génération PDF</div>
   </div>
 
@@ -1878,7 +1895,14 @@ function fmtTime(hhmm) {
    Utilise le PDF OFFICIEL remplissable (cartegrise.com/ministère)
    avec ses vrais champs AcroForm. Remplissage natif, alignement parfait.
    ============================================================ */
-async function fillCerfa15776(d) {
+/* ============================================================
+   CERFA 15776 — Certificat de cession
+   Paramètre mode :
+     - 'vente_part' / 'vente_pro' : ancien = LEASECAR, nouveau = client/pro
+     - 'achat'                    : ancien = financeur, nouveau = LEASECAR
+   ============================================================ */
+async function fillCerfa15776(d, options = {}) {
+  const mode = options.mode || 'vente_part';
   const buf = await tryLoad('cerfa_15776.pdf');
   if (!buf) return null;
   const pdf = await PDFDocument.load(buf);
@@ -1916,7 +1940,7 @@ async function fillCerfa15776(d) {
     }
   };
 
-  // ===== Véhicule =====
+  // ===== Véhicule (commun à tous les modes) =====
   setText('num_Immatriculation[0]', d.immat);
   setText('num_Identification[0]', d.vin);
   if (dImmat.j) {
@@ -1938,18 +1962,60 @@ async function fillCerfa15776(d) {
     setRadio('Groupe_de_boutons_radio1[0]', '1');  // OUI
   }
 
-  // ===== Ancien propriétaire (LEASECAR = SAS = morale) =====
-  setRadio('Groupe_de_boutons_radio3[0]', '1');   // Personne morale
+  // ===== Détermination des parties selon le mode =====
+  // ANCIEN propriétaire = vendeur, NOUVEAU = acheteur
+  let ancien, nouveau, ancienIsMorale, nouveauType;
+  if (mode === 'achat') {
+    // Financeur (= ancien proprio) → LEASECAR (= nouveau proprio)
+    const banqueVide = $('banqueSel') && $('banqueSel').value === 'vide';
+    ancien = {
+      nom: d.bNom, siret: d.bSiren,
+      voie: d.bVoie, typeVoie: d.bTypeVoie, nomVoie: d.bNomVoie,
+      cp: d.bCP, commune: d.bCommune,
+      isVide: banqueVide   // si "vide", on ne remplit rien
+    };
+    ancienIsMorale = true;  // les financeurs sont toujours des personnes morales
+    nouveau = {
+      nom: d.lNom, siret: d.lSiren,
+      voie: d.lVoie, typeVoie: d.lTypeVoie, nomVoie: d.lNomVoie,
+      cp: d.lCP, commune: d.lCommune
+    };
+    nouveauType = 'moral';   // LEASECAR est une SAS
+  } else {
+    // Vente (vente_part ou vente_pro) : LEASECAR → client/pro
+    ancien = {
+      nom: d.lNom, siret: d.lSiren,
+      voie: d.lVoie, typeVoie: d.lTypeVoie, nomVoie: d.lNomVoie,
+      cp: d.lCP, commune: d.lCommune,
+      isVide: false
+    };
+    ancienIsMorale = true;
+    nouveau = {
+      nom: d.cNom, siret: d.cSiret,
+      voie: d.cVoie, typeVoie: d.cTypeVoie, nomVoie: d.cNomVoie,
+      cp: d.cCP, commune: d.cCommune,
+      dateN: d.cDateN, lieuN: d.cLieuN, sexe: d.cSexe
+    };
+    nouveauType = (mode === 'vente_pro') ? 'moral' : (d.cType || 'physique');
+  }
 
-  setText('txt_IdentitéVendeur[0]', d.lNom);
-  setText('Num_Siret[0]', d.lSiren);
-  setText('num_VoieAdresse[0]', d.lVoie);
-  setText('txt_TypeVoieAdresse[0]', d.lTypeVoie);
-  setText('txt_NomVoie[0]', d.lNomVoie);
-  setText('num_CodePostalAdresse[0]', d.lCP);
-  setText('txt_CommuneAdresse[0]', d.lCommune);
+  // ===== Ancien propriétaire =====
+  if (!ancien.isVide) {
+    if (ancienIsMorale) {
+      setRadio('Groupe_de_boutons_radio3[0]', '1');  // Personne morale
+      setText('Num_Siret[0]', ancien.siret);
+    } else {
+      setRadio('Groupe_de_boutons_radio3[0]', '2');  // Personne physique
+    }
+    setText('txt_IdentitéVendeur[0]', ancien.nom);
+    setText('num_VoieAdresse[0]', ancien.voie);
+    setText('txt_TypeVoieAdresse[0]', ancien.typeVoie);
+    setText('txt_NomVoie[0]', ancien.nomVoie);
+    setText('num_CodePostalAdresse[0]', ancien.cp);
+    setText('txt_CommuneAdresse[0]', ancien.commune);
+  }
 
-  // Céder (radio4 position 1)
+  // Céder (radio4 position 1) - toujours coché peu importe le mode
   setRadio('Groupe_de_boutons_radio4[0]', '1');
 
   // Date + heure cession
@@ -1962,34 +2028,35 @@ async function fillCerfa15776(d) {
   setText('txt_LieuDéclaration1[0]', d.lieuCession);
   setText('num_DateDéclaration[0]', dCess.full);
 
-  // ===== Nouveau propriétaire (CLIENT) =====
-  // Si la checkbox "Acquéreur à remplir manuellement" est cochée, on saute
-  // entièrement cette section (ni coches, ni texte) — le vendeur le fera à la main.
-  const skipClient = $('cSkipFill') && $('cSkipFill').checked;
-  if (!skipClient) {
-    if (d.cType === 'physique') {
+  // ===== Nouveau propriétaire =====
+  // En mode vente, si checkbox skipFill cochée → on ne remplit rien (acquéreur saisi à la main).
+  // En mode achat, on remplit toujours (LEASECAR est le nouveau proprio).
+  const skipNouveau = (mode !== 'achat') && $('cSkipFill') && $('cSkipFill').checked;
+
+  if (!skipNouveau) {
+    if (nouveauType === 'physique') {
       setRadio('Groupe_de_boutons_radio5[0]', '2');   // Personne physique
-      if (d.cSexe === 'M') {
+      if (nouveau.sexe === 'M') {
         setRadio('Groupe_de_boutons_radio6[0]', '1');
       } else {
         setRadio('Groupe_de_boutons_radio6[0]', '2');
       }
-      const dn = fmtDate(d.cDateN);
+      const dn = fmtDate(nouveau.dateN);
       setText('num_DateNaissanceAcheteurJ[0]', dn.j);
       setText('num_DateNaissanceAcheteurM[0]', dn.m);
       setText('num_DateNaissanceAcheteurA[0]', dn.a);
-      setText('txt_LieuNaissanceAcheteur[0]', d.cLieuN);
+      setText('txt_LieuNaissanceAcheteur[0]', nouveau.lieuN);
     } else {
       setRadio('Groupe_de_boutons_radio5[0]', '1');   // Personne morale
-      setText('num_SiretAcheteur[0]', d.cSiret);
+      setText('num_SiretAcheteur[0]', nouveau.siret);
     }
 
-    setText('txt_IdentitéAcheteur[0]', d.cNom);
-    setText('num_VoieAdresseAcheteur[0]', d.cVoie);
-    setText('txt_TypeVoieAdresseAcheteur[0]', d.cTypeVoie);
-    setText('txt_NomVoieAdresseAcheteur[0]', d.cNomVoie);
-    setText('num_CodePostalAdresseAcheteur[0]', d.cCP);
-    setText('txt_CommuneAdresseAcheteur[0]', d.cCommune);
+    setText('txt_IdentitéAcheteur[0]', nouveau.nom);
+    setText('num_VoieAdresseAcheteur[0]', nouveau.voie);
+    setText('txt_TypeVoieAdresseAcheteur[0]', nouveau.typeVoie);
+    setText('txt_NomVoieAdresseAcheteur[0]', nouveau.nomVoie);
+    setText('num_CodePostalAdresseAcheteur[0]', nouveau.cp);
+    setText('txt_CommuneAdresseAcheteur[0]', nouveau.commune);
 
     // Acquérir + Avoir été informé : cochées uniquement si l'acquéreur est rempli
     setCheck('ckb_ValidationDéclarationA1[0]', true);
@@ -1999,14 +2066,19 @@ async function fillCerfa15776(d) {
     setText('txt_dateDéclaration[0]', dCess.full);
   }
 
-  // ===== Tampon LEASECAR dans la zone "Signature de l'ancien propriétaire"
-  // (sur les 2 exemplaires, page 1 et page 2) =====
-  // "Signature de l'ancien propriétaire" est à y=501 sur les deux pages.
-  // Le label "Pour les sociétés..." est à y=512-522.
-  // On place le tampon en-dessous, dans la zone vide réservée.
+  // ===== Tampon LEASECAR =====
+  // Mode vente (LEASECAR ancien proprio) : tampon sur "Signature ancien proprio"
+  // Mode achat (LEASECAR nouveau proprio) : tampon sur "Signature nouveau proprio"
   for (let pi = 0; pi < Math.min(pdf.getPageCount(), 2); pi++) {
     const page = pdf.getPage(pi);
-    await drawTampon(pdf, page, 405, 535, 175, 60);
+    if (mode === 'achat') {
+      // LEASECAR est nouveau proprio → tampon dans zone signature nouveau proprio
+      // Zone vide entre le label "Signature du nouveau propriétaire" et le bandeau bas
+      await drawTampon(pdf, page, 405, 785, 175, 40);
+    } else {
+      // LEASECAR est ancien proprio → tampon dans zone signature ancien proprio
+      await drawTampon(pdf, page, 405, 535, 175, 60);
+    }
   }
 
   return await pdf.save();
@@ -2017,7 +2089,14 @@ async function fillCerfa15776(d) {
    CERFA 13751 — Déclaration d'achat BANQUE → LEASECAR
    Ce PDF a des champs AcroForm — on les remplit par nom
    ============================================================ */
-async function fillCerfa13751(d) {
+/* ============================================================
+   CERFA 13751 — Déclaration d'achat
+   Paramètre mode :
+     - 'achat'     : acquéreur = LEASECAR, vendeur = financeur (tampon LEASECAR sur acquéreur)
+     - 'vente_pro' : acquéreur = pro,      vendeur = LEASECAR  (tampon LEASECAR sur vendeur)
+   ============================================================ */
+async function fillCerfa13751(d, options = {}) {
+  const mode = options.mode || 'achat';
   const buf = await tryLoad('cerfa_13751.pdf');
   if (!buf) return null;
   const pdf = await PDFDocument.load(buf);
@@ -2028,27 +2107,63 @@ async function fillCerfa13751(d) {
   const form = pdf.getForm();
   const dCess = fmtDate(d.dateCession);
   const t = fmtTime(d.heureCession);
-  const dateCessionStr = `${dCess.j}${dCess.m}${dCess.a}`;   // format JJMMAAAA pour les champs date
+  const dateCessionStr = `${dCess.j}${dCess.m}${dCess.a}`;
 
-  // Helpers : remplissage par NOM EXACT pour éviter les collisions de fragments
+  // Helpers : remplissage par NOM EXACT
   const prefix = 'topmostSubform[0].Page1[0]';
 
   const setText = (shortName, value) => {
     if (value === undefined || value === null || value === '') return;
     try {
       form.getTextField(`${prefix}.${shortName}`).setText(String(value));
-    } catch (e) { /* champ absent, on ignore silencieusement */ }
+    } catch (e) { /* champ absent, ignore */ }
   };
 
-  // ---- HAUT : ACQUÉREUR = LEASECAR ----
-  setText('Nom[0]',         d.lNom);
-  setText('NSIREN[0]',      d.lSiren);
-  setText('N_voie[0]',      d.lVoie);
-  setText('Nomvoie[0]',     d.lNomVoie);
-  setText('Codepostal[0]',  d.lCP);
-  setText('Commune[0]',     d.lCommune);
+  // ===== Détermination des parties selon le mode =====
+  let acquereur, vendeur;
+  if (mode === 'vente_pro') {
+    // LEASECAR vend à un pro
+    // HAUT (acquéreur) = PRO
+    // BAS (vendeur) = LEASECAR
+    const skipPro = $('cSkipFill') && $('cSkipFill').checked;
+    acquereur = skipPro ? null : {
+      nom: d.cNom, siren: d.cSiret,
+      voie: d.cVoie, nomVoie: d.cNomVoie,
+      cp: d.cCP, commune: d.cCommune
+    };
+    vendeur = {
+      nom: d.lNom, siren: d.lSiren,
+      voie: d.lVoie, nomVoie: d.lNomVoie,
+      cp: d.lCP, commune: d.lCommune
+    };
+  } else {
+    // mode === 'achat' : financeur vend à LEASECAR
+    // HAUT (acquéreur) = LEASECAR
+    // BAS (vendeur) = FINANCEUR
+    acquereur = {
+      nom: d.lNom, siren: d.lSiren,
+      voie: d.lVoie, nomVoie: d.lNomVoie,
+      cp: d.lCP, commune: d.lCommune
+    };
+    const banqueVide = $('banqueSel') && $('banqueSel').value === 'vide';
+    vendeur = banqueVide ? null : {
+      nom: d.bNom, siren: d.bSiren,
+      voie: d.bVoie, nomVoie: d.bNomVoie,
+      cp: d.bCP, commune: d.bCommune
+    };
+  }
 
-  // Véhicule
+  // ---- HAUT : ACQUÉREUR ----
+  if (acquereur) {
+    setText('Nom[0]',         acquereur.nom);
+    setText('NSIREN[0]',      acquereur.siren);
+    setText('N_voie[0]',      acquereur.voie);
+    setText('Nomvoie[0]',     acquereur.nomVoie);
+    setText('Codepostal[0]',  acquereur.cp);
+    setText('Commune[0]',     acquereur.commune);
+  }
+
+  // Véhicule (commun)
   setText('N_dimmatriculation[0]', d.immat);
   setText('N_didentification[0]',  d.vin);
   setText('Marque[0]',             d.marque);
@@ -2057,7 +2172,7 @@ async function fillCerfa13751(d) {
   setText('Genrenational[0]',      d.genre);
   setText('N_deformuleimmatriculation[0]', d.numFormule);
 
-  // Date / heure de cession (= date où LEASECAR achète à la banque)
+  // Date / heure de cession
   setText('Data_jour_vente[0]',  dateCessionStr);
   setText('HEUREMINUTES[0]',     `${t.h}${t.min}`);
   setText('Data_certif-vehi[0]', dateCessionStr);
@@ -2065,36 +2180,41 @@ async function fillCerfa13751(d) {
   setText('Fait_à[0]',          d.lieuCession);
   setText('Data_signature[0]',  dateCessionStr);
 
-  // ---- BAS : VENDEUR = BANQUE / FINANCEUR ----
-  setText('Nom2[0]',        d.bNom);
-  setText('NSIREN2[0]',     d.bSiren);
-  setText('N_voie2[0]',     d.bVoie);
-  setText('Nomvoie2[0]',    d.bNomVoie);
-  setText('Codepostal2[0]', d.bCP);
-  setText('Commune2[0]',    d.bCommune);
+  // ---- BAS : VENDEUR ----
+  if (vendeur) {
+    setText('Nom2[0]',        vendeur.nom);
+    setText('NSIREN2[0]',     vendeur.siren);
+    setText('N_voie2[0]',     vendeur.voie);
+    setText('Nomvoie2[0]',    vendeur.nomVoie);
+    setText('Codepostal2[0]', vendeur.cp);
+    setText('Commune2[0]',    vendeur.commune);
+  }
 
-  // Date de vente (banque → LEASECAR) = date de cession (UNE SEULE date dans le workflow)
-  setText('Data_VENTE[0]',  dateCessionStr);   // date "vendu le ..."
+  setText('Data_VENTE[0]',  dateCessionStr);
   setText('Fait_à_2[0]',    d.lieuCession);
-  setText('Data_CERTIF[0]', dateCessionStr);   // date "Fait à ..., le ..." (certif vente)
+  setText('Data_CERTIF[0]', dateCessionStr);
 
   // ---- COCHES ----
-  // Note : pdf-lib ne sait pas distinguer les boutons radio de ce PDF
-  // (toutes les options portent le même nom "Oui"). On dessine donc directement
-  // un X aux positions EXACTES des cases (extraites des widgets du PDF source) :
-  //   Bouton_radio1 case '0' : x=92, y=83  → "professionnel du commerce de l'automobile"
-  //   Bouton_radio2 case '0' : x=88, y=189 → "acheté"
-  //   Bouton_radio3 case '0' : x=236, y=336 → "OUI"
+  // Positions extraites des widgets du PDF source :
+  //   Bouton_radio1 case 0 : x=92, y=83  → "professionnel du commerce de l'automobile"
+  //   Bouton_radio2 case 0 : x=88, y=189 → "acheté"
+  //   Bouton_radio3 case 0 : x=236, y=336 → "OUI"
   const p = pdf.getPage(0);
   const D = makeDrawer(p, fontR, fontB);
   D.check(93, 92);    // professionnel automobile
   D.check(89, 198);   // acheté
   D.check(237, 345);  // OUI présence certificat
 
-  // Tampon LEASECAR dans la zone "Cachet et signature de l'acquéreur"
-  // L'encart est à droite, sous le label à y=439
-  // Largeur page = 595, l'encart va d'environ x=430 à x=585
-  await drawTampon(pdf, p, 430, 460, 150, 50);
+  // ===== Tampon LEASECAR =====
+  // Mode 'achat'     : LEASECAR est acquéreur → tampon sur "Cachet acquéreur" (haut, droite)
+  // Mode 'vente_pro' : LEASECAR est vendeur  → tampon sur "Signature du vendeur" (bas, droite)
+  if (mode === 'vente_pro') {
+    // Zone "Signature du vendeur" en bas à droite, sous la date "Fait à ... le ..."
+    await drawTampon(pdf, p, 430, 730, 150, 50);
+  } else {
+    // Zone "Cachet et signature de l'acquéreur" en haut à droite
+    await drawTampon(pdf, p, 430, 460, 150, 50);
+  }
 
   return await pdf.save();
 }
@@ -2120,7 +2240,7 @@ $('btnGenerate').addEventListener('click', async () => {
 
   // 1. Un mode doit être sélectionné
   if (!currentMode) {
-    alert('Veuillez d\'abord sélectionner le type d\'opération (Vente ou Achat) en haut de la page.');
+    alert('Veuillez d\'abord sélectionner le type d\'opération (Vente Particulier, Vente Pro ou Achat) en haut de la page.');
     return;
   }
 
@@ -2139,36 +2259,35 @@ $('btnGenerate').addEventListener('click', async () => {
   ];
 
   // Ajouter selon le mode
-  if (currentMode === 'vente') {
-    // Si la checkbox "acquéreur à remplir manuellement" est cochée, on n'exige
-    // PAS les champs client (le vendeur les écrira à la main sur le PDF imprimé).
+  // Pour les modes vente, on vérifie les champs client (sauf si checkbox skipFill)
+  if (currentMode === 'vente_part' || currentMode === 'vente_pro') {
     const skipClient = $('cSkipFill') && $('cSkipFill').checked;
     if (!skipClient) {
       requis.push(
-        { id: 'cNom',      nom: 'Nom / Raison sociale du client' },
-        { id: 'cVoie',     nom: 'N° de voie du client' },
-        { id: 'cTypeVoie', nom: 'Type de voie du client' },
-        { id: 'cNomVoie',  nom: 'Nom de la voie du client' },
-        { id: 'cCP',       nom: 'Code postal du client' },
-        { id: 'cCommune',  nom: 'Commune du client' }
+        { id: 'cNom',      nom: 'Nom / Raison sociale de l\'acquéreur' },
+        { id: 'cVoie',     nom: 'N° de voie de l\'acquéreur' },
+        { id: 'cTypeVoie', nom: 'Type de voie de l\'acquéreur' },
+        { id: 'cNomVoie',  nom: 'Nom de la voie de l\'acquéreur' },
+        { id: 'cCP',       nom: 'Code postal de l\'acquéreur' },
+        { id: 'cCommune',  nom: 'Commune de l\'acquéreur' }
       );
-      // Champs spécifiques selon physique/moral
       if (d.cType === 'physique') {
+        // Vente Particulier uniquement
         requis.push(
-          { id: 'cDateN',  nom: 'Date de naissance du client' },
-          { id: 'cLieuN',  nom: 'Lieu de naissance du client' }
+          { id: 'cDateN',  nom: 'Date de naissance de l\'acquéreur' },
+          { id: 'cLieuN',  nom: 'Lieu de naissance de l\'acquéreur' }
         );
       } else {
-        requis.push({ id: 'cSiret', nom: 'SIRET du client (personne morale)' });
+        // Vente Pro ou particulier avec personne morale
+        requis.push({ id: 'cSiret', nom: 'SIRET de l\'acquéreur (personne morale)' });
       }
     }
-  } else if (currentMode === 'achat') {
-    // Si le financeur "vide" est sélectionné, on n'exige PAS les champs banque
-    // (le vendeur les écrira à la main sur le PDF imprimé).
+  }
+  // Mode achat ou vente_pro : on a besoin des infos du financeur (sauf si "vide")
+  if (currentMode === 'achat') {
     const banqueId = $('banqueSel') ? $('banqueSel').value : '';
     if (banqueId === 'vide') {
-      // Pas de validation des champs banque, mais on exige qu'une option soit
-      // sélectionnée (ce qui est le cas si banqueId === 'vide').
+      // Pas de validation des champs banque
     } else if (!banqueId) {
       requis.push({ id: 'banqueSel', nom: 'Financeur (à sélectionner dans la liste)' });
     } else {
@@ -2233,13 +2352,34 @@ $('btnGenerate').addEventListener('click', async () => {
   const safeImmat = (d.immat || 'vehicule').replace(/[^A-Z0-9-]/gi, '');
 
   try {
-    // Seul le Cerfa correspondant au mode est généré
-    const jobs = currentMode === 'vente'
-      ? [{ fn: fillCerfa15776, name: `15776_vente_${safeImmat}.pdf`, fallback: 'cerfa_15776.pdf' }]
-      : [{ fn: fillCerfa13751, name: `13751_achat_${safeImmat}.pdf`, fallback: 'cerfa_13751.pdf' }];
+    // Selon le mode, on génère 1 ou 2 PDFs.
+    //  - vente_part : 15776 (LEASECAR → particulier)
+    //  - vente_pro  : 13751 (pro → signe achat) + 15776 (LEASECAR → pro)
+    //  - achat      : 13751 (LEASECAR → signe achat) + 15776 (financeur → LEASECAR)
+    let jobs;
+    if (currentMode === 'vente_part') {
+      jobs = [
+        { fn: () => fillCerfa15776(d, { mode: 'vente_part' }),
+          name: `15776_vente-particulier_${safeImmat}.pdf`, fallback: 'cerfa_15776.pdf' }
+      ];
+    } else if (currentMode === 'vente_pro') {
+      jobs = [
+        { fn: () => fillCerfa13751(d, { mode: 'vente_pro' }),
+          name: `13751_vente-pro_${safeImmat}.pdf`, fallback: 'cerfa_13751.pdf' },
+        { fn: () => fillCerfa15776(d, { mode: 'vente_pro' }),
+          name: `15776_vente-pro_${safeImmat}.pdf`, fallback: 'cerfa_15776.pdf' }
+      ];
+    } else { // achat
+      jobs = [
+        { fn: () => fillCerfa13751(d, { mode: 'achat' }),
+          name: `13751_achat_${safeImmat}.pdf`, fallback: 'cerfa_13751.pdf' },
+        { fn: () => fillCerfa15776(d, { mode: 'achat' }),
+          name: `15776_achat-financeur_${safeImmat}.pdf`, fallback: 'cerfa_15776.pdf' }
+      ];
+    }
 
     for (const j of jobs) {
-      const bytes = await j.fn(d);
+      const bytes = await j.fn();
       if (bytes) {
         lastGenerated.push({ name: j.name, bytes, blobUrl: makeBlobUrl(bytes) });
       } else {
@@ -2408,12 +2548,16 @@ $('loadInput').addEventListener('change', async e => {
   catch { alert('Fichier JSON invalide.'); }
 });
 
-/* ===== Gestion du mode Achat / Vente ===== */
-let currentMode = null;   // 'vente' | 'achat' | null
+/* ===== Gestion du mode (3 modes) =====
+   - 'vente_part' : LEASECAR → Particulier  → 15776 seul
+   - 'vente_pro'  : LEASECAR → Professionnel → 13751 + 15776
+   - 'achat'      : Financeur → LEASECAR     → 13751 + 15776
+*/
+let currentMode = null;
 
 function setMode(mode) {
   currentMode = mode;
-  document.body.classList.remove('mode-vente', 'mode-achat');
+  document.body.classList.remove('mode-vente_part', 'mode-vente_pro', 'mode-achat');
   document.body.classList.add('mode-' + mode);
 
   // Mise à jour des boutons (style actif)
@@ -2424,22 +2568,35 @@ function setMode(mode) {
   // Tag dans le titre Parties
   const tag = $('partiesTag');
   if (tag) {
-    tag.textContent = mode === 'vente' ? 'LEASECAR → Client' : 'Financeur → LEASECAR';
+    tag.textContent = mode === 'achat' ? 'Financeur → LEASECAR'
+                    : mode === 'vente_pro' ? 'LEASECAR → Professionnel'
+                    : 'LEASECAR → Particulier';
   }
 
-  // Bouton génération
+  // Bouton génération (texte et PDFs générés)
   const btnGen = $('btnGenerate');
   if (btnGen) {
-    btnGen.textContent = mode === 'vente'
-      ? 'Générer Cerfa 15776 (Vente)'
-      : 'Générer Cerfa 13751 (Achat)';
+    btnGen.textContent = mode === 'achat'    ? 'Générer 13751 + 15776 (Achat)'
+                      : mode === 'vente_pro' ? 'Générer 13751 + 15776 (Vente Pro)'
+                      :                        'Générer Cerfa 15776 (Vente Particulier)';
+  }
+
+  // Pour le mode Vente Pro, on bascule le client en personne morale par défaut
+  // (un pro a toujours un SIRET et une raison sociale).
+  if (mode === 'vente_pro') {
+    $('cType').value = 'moral';
+    toggleClient();
+  } else if (mode === 'vente_part') {
+    $('cType').value = 'physique';
+    toggleClient();
   }
 
   // Reset étape
   markStep(1);
 }
 
-$('modeVente').addEventListener('click', () => setMode('vente'));
+$('modeVentePart').addEventListener('click', () => setMode('vente_part'));
+$('modeVentePro').addEventListener('click', () => setMode('vente_pro'));
 $('modeAchat').addEventListener('click', () => setMode('achat'));
 
 /* Init */
