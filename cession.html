@@ -502,18 +502,22 @@
   body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) .step-label-vente_part,
   body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) .step-label-vente_pro,
   body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) .step-label-achat { display: none; }
-  body:not(.mode-vente):not(.mode-achat) #step2::after { content: ' Étape 2'; color: var(--ink-soft); font-size: 11px; }
-  /* Affichage conditionnel des sections */
-  body.mode-vente #banqueFieldset,
-  body.mode-vente .docs-choice-wrap { display: none; }
+  body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) #step2::after { content: ' Étape 2'; color: var(--ink-soft); font-size: 11px; }
+  /* Affichage conditionnel des sections selon le mode :
+     - vente_part / vente_pro : afficher clientFieldset (acquéreur), masquer banqueFieldset
+     - achat : afficher banqueFieldset (financeur), masquer clientFieldset */
+  body.mode-vente_part #banqueFieldset,
+  body.mode-vente_pro #banqueFieldset,
+  body.mode-vente_part .docs-choice-wrap,
+  body.mode-vente_pro .docs-choice-wrap { display: none; }
   body.mode-achat #clientFieldset,
   body.mode-achat .docs-choice-wrap { display: none; }
   /* Désactivation du panneau Parties si aucun mode sélectionné */
-  body:not(.mode-vente):not(.mode-achat) #partiesPanel {
+  body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) #partiesPanel {
     opacity: 0.4;
     pointer-events: none;
   }
-  body:not(.mode-vente):not(.mode-achat) #partiesPanel::after {
+  body:not(.mode-vente_part):not(.mode-vente_pro):not(.mode-achat) #partiesPanel::after {
     content: 'Sélectionner d\'abord le type d\'opération en haut de la page';
     position: absolute;
     top: 50%; left: 50%;
